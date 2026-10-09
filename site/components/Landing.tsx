@@ -2,7 +2,7 @@ import Image from 'next/image';
 import { dict, GITHUB_URL, type Language } from '@/content/dict';
 import { TopBar } from './TopBar';
 import { SearchPanel } from './SearchPanel';
-import { SpeedTrace } from './SpeedTrace';
+import { ScopeDemo } from './ScopeDemo';
 import { SyntaxSheet } from './SyntaxSheet';
 import { ProSection } from './ProSection';
 import { SiteFooter } from './SiteFooter';
@@ -29,6 +29,6 @@ export function Landing({ lang }: { lang: Language }) {
       </div>
       <div className={styles.preview}><SearchPanel lang={lang} /></div>
     </section>
-    <SpeedTrace lang={lang} /><AITopicsSection lang={lang} /><SyntaxSheet lang={lang} /><ProSection lang={lang} />
+    <ScopeDemo lang={lang} /><SyntaxSheet lang={lang} /><ProSection lang={lang} />
   </SearchProvider></main><SiteFooter lang={lang} /></>;
 }

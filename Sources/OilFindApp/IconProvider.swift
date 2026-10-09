@@ -27,7 +27,8 @@ final class IconProvider {
             }
         }
     }
-    func icon(name: String, path: String, flags: UInt8, kind: UInt8, resolveFileIcon: Bool = true, completion: @escaping (NSImage) -> Void) -> NSImage {
+    func icon(name: String, path: String, flags: UInt8, kind: UInt8, resolveFileIcon: Bool = true, loadFileIcon: Bool = false,
+              completion: @escaping (NSImage) -> Void) -> NSImage {
         precondition(Thread.isMainThread)
         let directory = flags & SiftFlag.dir != 0, package = flags & SiftFlag.package != 0
         let key: String
@@ -42,7 +43,7 @@ final class IconProvider {
         let generic: NSImage
         if let cached = extensions[key] { generic = cached }
         else { generic = NSWorkspace.shared.icon(for: type); extensions[key] = generic }
-        guard resolveFileIcon, directory || package || kind == 2 else { return generic }
+        guard resolveFileIcon, directory || package || kind == 2 || loadFileIcon else { return generic }
         if let image = paths.object(forKey: path as NSString) { return image }
         if pending[path] != nil { pending[path]!.append(completion); return generic }
         pending[path] = [completion]

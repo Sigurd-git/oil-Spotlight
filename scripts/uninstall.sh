@@ -11,7 +11,8 @@ printf '%s\n' 'The following will be deleted:' \
     '/Applications/Oil Find.app' \
     "$HOME/Library/Application Support/Oil Find" \
     'Settings: com.oiloil.find' \
-    'Legacy authorization item: com.oiloil.find.trial'
+    'Legacy authorization item: com.oiloil.find.trial' \
+    'Clipboard encryption key: com.oiloil.find.clipboard-history'
 if [[ "$PURGE" == true ]]; then
     printf '%s\n' 'Pro trial anchors will also be deleted.'
 else
@@ -53,3 +54,4 @@ else
     security delete-generic-password -s com.oiloil.find.pro.evaluation >/dev/null 2>&1 || true
 fi
 security delete-generic-password -s com.oiloil.find.trial >/dev/null 2>&1 || true
+security delete-generic-password -s com.oiloil.find.clipboard-history -a aes-gcm-v1 >/dev/null 2>&1 || true

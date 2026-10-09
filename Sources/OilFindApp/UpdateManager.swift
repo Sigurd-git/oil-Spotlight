@@ -20,10 +20,11 @@ final class UpdateManager: ObservableObject {
     }
     @Published private(set) var state: UpdateState = .idle
     @Published private(set) var manifest: UpdateManifest?
-    @Published var automatic: Bool { didSet { if !snapshot { preferences.automatic = automatic; schedule() } } }
+    @Published var automatic: Bool { didSet { if supportsAppUpdates && !snapshot { preferences.automatic = automatic; schedule() } } }
     var onChange: (() -> Void)?
     private let preferences: UpdatePreferences
     let runningVersion: UpdateVersion
+    let supportsAppUpdates: Bool
     private let snapshot: Bool
     private var timer: Timer?
     private var windowController: UpdateWindowController?
@@ -34,30 +35,33 @@ final class UpdateManager: ObservableObject {
         #if DEBUG
         return false
         #else
-        return !state.busy
+        return supportsAppUpdates && !state.busy
         #endif
     }
-    init(snapshot: Bool = false, preferences: UpdatePreferences = UpdatePreferences(), current: UpdateVersion = UpdateManager.current) {
+    init(snapshot: Bool = false, preferences: UpdatePreferences = UpdatePreferences(), current: UpdateVersion = UpdateManager.current,
+         supportsAppUpdates: Bool = Bundle.main.object(forInfoDictionaryKey: "OilFindUpdateChannel") as? String != "spotlight-fork") {
         self.snapshot = snapshot; self.preferences = preferences
+        self.supportsAppUpdates = supportsAppUpdates
         runningVersion = current
-        automatic = snapshot ? true : preferences.automatic
+        automatic = supportsAppUpdates && (snapshot || preferences.automatic)
     }
     func start() {
         #if !DEBUG
+        guard supportsAppUpdates else { return }
         started = true; schedule(delay: 30)
         #endif
     }
     func stop() { timer?.invalidate(); timer = nil; started = false }
     private func schedule(delay: TimeInterval = 86_400) {
         timer?.invalidate(); timer = nil
-        guard started, automatic else { return }
+        guard supportsAppUpdates, started, automatic else { return }
         timer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
             self?.check(manual: false); self?.schedule()
         }
     }
     func check(manual: Bool = true) {
         #if !DEBUG
-        guard !snapshot, !state.busy else { return }
+        guard supportsAppUpdates, !snapshot, !state.busy else { return }
         setState(.checking)
         Task { @MainActor in
             do {
@@ -89,7 +93,7 @@ final class UpdateManager: ObservableObject {
     }
     func install() {
         #if !DEBUG
-        guard let manifest, !state.busy, !snapshot else { return }
+        guard supportsAppUpdates, let manifest, !state.busy, !snapshot else { return }
         readyToRelaunch = false
         setState(.downloading(0))
         let current = Self.current, application = Bundle.main.bundleURL
