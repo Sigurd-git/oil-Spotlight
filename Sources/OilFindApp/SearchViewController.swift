@@ -1,21 +1,13 @@
 import AppKit
 import Quartz
+import Combine
 import Darwin
 import OilFindCore
-
-private final class SupplementarySearchBox { var hits: [SupplementaryHit] = [] }
-private final class AdditionalSearchBox { var items: [AdditionalSearchItem] = []; var failed = false; var elapsedMs: Double = 0 }
-
-private final class SearchGeneration {
-    private let lock = NSLock()
-    private var value = 0
-    func next() -> Int { lock.lock(); defer { lock.unlock() }; value += 1; return value }
-    func current(_ token: Int) -> Bool { lock.lock(); defer { lock.unlock() }; return value == token }
-}
 
 final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDelegate {
     let searchField = SearchField(frame: .zero)
     let filters = FilterBar(frame: .zero)
+    let scopes = ScopeBar(frame: .zero)
     let results = ResultsView(frame: .zero)
     let footer = FooterBar(frame: .zero)
     let quickLook = QuickLook()
@@ -27,54 +19,30 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
     private var snapshotNoAccess = false
     private let snapshot: Bool
     private let preferences: UserDefaults
-    private let queue = DispatchQueue(label: "com.oiloil.find.search", qos: .userInteractive)
-    private let generation = SearchGeneration(), cache = SearchCache()
+    let applications: ApplicationCatalog
+    let clipboard: ClipboardHistory
+    let pasteController: ClipboardPasteController
+    private let coordinator = SearchCoordinator()
+    private var subscriptions: Set<AnyCancellable> = []
+    private var userNavigated = false, preserveFirstSelection = false
+    private var requestedScope = SearchScope.all
+    private var clipboardPreview: NSPanel?
+    private var clipboardActionGeneration = 0
+    private var pendingClipboardID: UUID?
     private var timer: Timer?
     private var stateView: NSView?
     private var languageObserver: NSObjectProtocol?
     private var menuTracking = false, dragging = false
     private var trashing: Set<URL> = []
-    private var selectionAnchor: (sourceID: String, store: IndexStore, id: UInt32, path: String)?
-    private var additionalSearchFailed = false
-    private var additionalPending = false
-    private var pendingNewSearch: Bool?
     private(set) var browsingResults = false
     var previewWithSpace: Bool { preferences.object(forKey: "previewWithSpace") as? Bool ?? true }
     private func setBrowsing(_ browsing: Bool) {
         browsingResults = browsing
-        footer.spacePreview = browsing && previewWithSpace
+        updateActionHints()
     }
     var manager: IndexManager?
     var supplementaryProvider: SupplementarySearchProvider?
-    var additionalSearchProvider: AdditionalSearchProvider? {
-        didSet {
-            oldValue?.onChange = nil; oldValue?.visibilityChanged(false)
-            additionalSearchProvider?.onChange = { [weak self] in self?.additionalChanged() }
-            if isViewLoaded { additionalChanged() }
-        }
-    }
-    private func refreshAdditionalFilter() {
-        guard isViewLoaded else { return }
-        filters.additionalTitle = additionalSearchProvider?.isEnabled == true ? additionalSearchProvider?.title : nil
-        searchField.placeholder = filters.additionalSelected ? additionalSearchProvider?.placeholder : nil
-    }
-    private func additionalChanged() {
-        refreshAdditionalFilter()
-        _ = generation.next(); results.cancelPendingRefresh(); results.cancelPress()
-        if additionalSearchProvider?.isEnabled != true { additionalPending = false }
-        if let provider = additionalSearchProvider, let result = results.result,
-           let filtered = result.removingUnavailableAdditionalItems(using: provider, options: filters.options) {
-            results.refresh(filtered, applyingAvailabilityImmediately: true)
-            resultDidChange(filtered)
-        }
-        if view.window?.isVisible == true { startSearch(preserveSelection: true) }
-    }
-    func panelDidHide() { additionalSearchProvider?.visibilityChanged(false) }
-    private let additionalQueue = DispatchQueue(label: "com.oiloil.find.additional", qos: .userInitiated)
-    private let supplementQueue = DispatchQueue(label: "com.oiloil.find.supplement", qos: .userInteractive)
     var additionalSources: (() -> [SearchSource])?
-    private var sourceCaches: [String: SearchCache] = [:]
-    private var sourceCacheStores: [String: ObjectIdentifier] = [:]
     private var searchSources: [SearchSource] {
         let primary = manager?.store.map { SearchSource(id: "startup", displayName: "", isOnline: true, store: $0) }
         return primary.map { [$0] + (additionalSources?() ?? []) } ?? (additionalSources?() ?? [])
@@ -83,36 +51,80 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
         refreshAdditionalFilter()
         refreshProgress()
         supplementaryProvider?.sourcesDidChange(searchSources)
-        _ = generation.next(); results.cancelPendingRefresh(); results.cancelPress()
+        coordinator.cancelFiles(); results.cancelPendingRefresh(); results.cancelPress()
         if supplementaryProvider?.isEnabled != true, let result = results.result, result.hasSupplements {
             let base = result.withoutSupplements()
-            let row = results.selectedItem.flatMap { base.index(sourceID: $0.source.id, store: $0.source.store, id: $0.id, path: $0.path) } ?? 0
-            present(base, selection: row, resetScroll: false)
+            replaceFilePresentation(base)
         }
         // Invalidate displayed actions immediately, including while the panel is hidden.
         if results.selectedItem?.source.isOnline != true { quickLook.close() }
         if let presented = results.result, let multi = presented.multiple {
             let current = Set(searchSources.map(\.id))
             if multi.sources.contains(where: { !current.contains($0.id) }) && current.isEmpty {
-                results.clear(preservingViewport: true); setState(.empty)
-                footer.text = L10n.text("footer.results", Presentation.countText(0), Presentation.elapsedText(0))
+                replaceFilePresentation(nil)
             }
         }
         results.localize()
         startSearch(preserveSelection: true)
     }
+    private func replaceFilePresentation(_ file: SearchPresentation?) {
+        if let old = results.snapshot {
+            let extras = old.leading.filter { row in if case .file = row { return false }; return true }
+            let found = SearchCoordinator.compose(raw: old.raw, scope: old.scope, filePresentation: file,
+                                                   extras: extras, trailing: old.trailing)
+            results.refresh(found, preserveSelection: true)
+        } else if let file {
+            let row = results.selectedItem.flatMap { file.index(sourceID: $0.source.id, store: $0.source.store, id: $0.id, path: $0.path) } ?? 0
+            present(file, selection: row, resetScroll: false)
+        } else {
+            results.clear(preservingViewport: true); setState(.empty)
+            footer.text = L10n.text("footer.results", Presentation.countText(0), Presentation.elapsedText(0))
+        }
+    }
     var hidePanel: (() -> Void)?
     var onSettings: (() -> Void)?
-    init(snapshot: Bool, preferences: UserDefaults = .standard) {
+    init(snapshot: Bool, preferences: UserDefaults = .standard, clipboard: ClipboardHistory? = nil) {
         self.snapshot = snapshot
         self.preferences = preferences
+        applications = ApplicationCatalog(snapshot: snapshot)
+        self.clipboard = clipboard ?? ClipboardHistory(snapshot: snapshot)
+        pasteController = ClipboardPasteController(snapshot: snapshot)
         super.init(nibName: nil, bundle: nil)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     override func loadView() { view = PanelSurface(snapshot: snapshot) }
     override func viewDidLoad() {
         super.viewDidLoad()
-        [searchField, topLine, filters, results, empty, indexing, bottomLine, footer, syntax].forEach(view.addSubview)
+        [searchField, topLine, scopes, filters, results, empty, indexing, bottomLine, footer, syntax].forEach(view.addSubview)
+        filters.isHidden = true
+        scopes.onChange = { [weak self] scope in self?.selectScope(scope) }
+        coordinator.onUpdate = { [weak self] found, refresh in
+            guard let self else { return }
+            self.diagnostics = found.filePresentation?.query.diagnostics ?? []
+            if self.preserveFirstSelection || refresh && self.userNavigated, let selected = self.results.selectedItem,
+               self.results.result?.query.raw == found.raw,
+               found.filesPending && found.position(of: "file:" + selected.path, fileID: selected.id,
+                                                    store: selected.source.store, sourceID: selected.source.id) == nil { return }
+            if self.preserveFirstSelection && self.results.snapshot == nil, let selected = self.results.selectedItem {
+                let position = found.position(of: "file:" + selected.path, fileID: selected.id,
+                                              store: selected.source.store, sourceID: selected.source.id) ?? 0
+                self.results.show(found, selection: position, resetScroll: false); self.snapshotDidChange(found)
+            } else if refresh || self.preserveFirstSelection && self.results.snapshot != nil {
+                self.results.refresh(found, preserveSelection: self.userNavigated || self.preserveFirstSelection)
+            } else {
+                self.results.show(found); self.snapshotDidChange(found)
+            }
+        }
+        results.onSnapshotApplied = { [weak self] found in self?.snapshotDidChange(found) }
+        applications.$revision.dropFirst().receive(on: RunLoop.main).sink { [weak self] _ in self?.refreshSources() }.store(in: &subscriptions)
+        clipboard.$entries.dropFirst().receive(on: RunLoop.main).sink { [weak self] _ in
+            if self?.scopes.scope == .clipboard { self?.refreshSources() }
+        }.store(in: &subscriptions)
+        clipboard.$enabled.dropFirst().receive(on: RunLoop.main).sink { [weak self] _ in
+            if self?.scopes.scope == .clipboard { self?.refreshSources() }
+        }.store(in: &subscriptions)
+        clipboard.$error.dropFirst().receive(on: RunLoop.main).sink { [weak self] _ in self?.refreshClipboardStatus() }.store(in: &subscriptions)
+        clipboard.$needsAccess.dropFirst().receive(on: RunLoop.main).sink { [weak self] _ in self?.refreshClipboardStatus() }.store(in: &subscriptions)
         syntax.isHidden = true
         syntax.onExample = { [weak self] example in
             guard let self else { return }; self.setBrowsing(false); self.searchField.text = example; self.toggleSyntax(false); self.searchField.focus(); self.startSearch()
@@ -120,7 +132,7 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
         searchField.onSelectionChange = { [weak self] in self?.refreshDiagnostics() }
         searchField.onChange = { [weak self] in self?.setBrowsing(false); self?.startSearch() }
         searchField.onKey = { [weak self] event in self?.handleKey(event) ?? false }
-        filters.onChange = { [weak self] in self?.refreshAdditionalFilter(); self?.searchField.focus(); self?.startSearch() }
+        filters.onChange = { [weak self] in self?.requestedScope = .files; self?.scopes.scope = .files; self?.searchField.focus(); self?.startSearch() }
         filters.onSortChange = { [weak self] in
             guard let self, !self.snapshot else { return }
             UserDefaults.standard.set(FilterBar.sortName(self.filters.options.sort), forKey: "sortKey")
@@ -133,12 +145,13 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
         if !snapshot { results.currentSource = { [weak self] id in self?.searchSources.first { $0.id == id } } }
         results.onPointerSelection = { [weak self] in self?.setBrowsing(true) }
         results.onOpen = { [weak self] in self?.openSelected() }
+        results.canPerformFileActions = { [weak self] in self?.resultIsCurrent == true && self?.stateView == nil }
+        results.onUserNavigation = { [weak self] in self?.userNavigated = true }
         results.onSelection = { [weak self] in
+            if let self, let pending = self.pendingClipboardID,
+               self.results.selectedLauncherRow?.identity != "clip:" + pending.uuidString { self.invalidateClipboardCopy() }
             self?.quickLook.refresh()
-            self?.footer.fileActions = self?.results.selectedAdditional == nil
-            if let self, let item = self.results.selectedItem {
-                self.selectionAnchor = (item.source.id, item.source.store, item.id, item.path)
-            }
+            self?.updateActionHints()
         }
         results.onContextMenu = { [weak self] _ in self?.contextMenu() }
         results.onRefreshApplied = { [weak self] result in self?.resultDidChange(result) }
@@ -153,7 +166,7 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
         quickLook.onKey = { [weak self] event in self?.handleKey(event) ?? false }
         footer.onSettings = { [weak self] in self?.onSettings?() }
         languageObserver = NotificationCenter.default.addObserver(forName: L10n.changed, object: nil, queue: .main) { [weak self] _ in self?.localize() }
-        setState(.indexing)
+        setState(.empty)
         if !snapshot {
             filters.options = SettingsPreferences.searchOptions()
             timer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in self?.refreshProgress() }
@@ -166,11 +179,11 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
         if let languageObserver { NotificationCenter.default.removeObserver(languageObserver) }
     }
     private func localize() {
-        footer.spacePreview = browsingResults && previewWithSpace
-        filters.localize(); footer.localize(); empty.localize(); indexing.localize(); syntax.localize(); results.localize()
+        footer.spacePreview = browsingResults && previewWithSpace && canPreviewSelection
+        scopes.localize(); filters.localize(); footer.localize(); empty.localize(); indexing.localize(); syntax.localize(); results.localize()
         searchField.localize()
-        refreshAdditionalFilter()
-        if let result = results.result { updateFooter(result) }
+        if let found = results.snapshot { snapshotDidChange(found) }
+        else if let result = results.result { updateFooter(result) }
         else if stateView === indexing { footer.text = L10n.text("footer.indexing", Presentation.countText(indexing.count)) }
         refreshProgress()
         view.needsLayout = true
@@ -180,8 +193,10 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
         let w = view.bounds.width, h = view.bounds.height, px = Theme.pixel(view)
         searchField.frame = NSRect(x: 0, y: 0, width: w, height: 64)
         topLine.frame = NSRect(x: 0, y: 64, width: w, height: px)
-        filters.frame = NSRect(x: 0, y: 64 + px, width: w, height: 40)
-        let top: CGFloat = 104 + px
+        scopes.frame = NSRect(x: 0, y: 64 + px, width: w, height: 40)
+        filters.isHidden = scopes.scope != .files
+        filters.frame = NSRect(x: 0, y: 104 + px, width: w, height: 40)
+        let top: CGFloat = (filters.isHidden ? 104 : 144) + px
         let region = NSRect(x: 0, y: top, width: w, height: max(0, h - top - 34 - px))
         [results, empty, indexing, syntax].forEach { $0.frame = region }
         bottomLine.frame = NSRect(x: 0, y: h - 34 - px, width: w, height: px)
@@ -192,7 +207,7 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
         let previous: NSView = stateView ?? (results as NSView)
         stateView = state == .empty ? empty : state == .indexing ? indexing : nil
         let target: NSView = stateView ?? (results as NSView)
-        footer.actionable = !syntaxVisible && stateView == nil && (results.result?.total ?? 0) > 0
+        footer.actionable = !syntaxVisible && stateView == nil && results.rowCount > 0
         guard previous !== target else { return }
         let animate = !snapshot && view.window?.isVisible == true && previous !== target
         for item in [results, empty, indexing] as [NSView] {
@@ -214,6 +229,8 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
         additionalSearchProvider?.visibilityChanged(true)
         setBrowsing(false)
         supplementaryProvider?.userActivity(visible: true, typing: false)
+        if scopes.scope == .clipboard { _ = clipboard.search("") }
+        if !snapshot { startSearch(preserveSelection: true); return }
         let currentQuery = Query.parse(searchField.text, store: manager?.store)
         let sources = searchSources
         if additionalSearchProvider?.isEnabled != true { additionalPending = false }
@@ -226,138 +243,86 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
     func indexChanged() {
         refreshProgress()
         supplementaryProvider?.sourcesDidChange(searchSources)
-        if view.window?.isVisible == true { refreshSearch() }
+        if view.window?.isVisible == true { coordinator.refreshFiles(sources: searchSources) }
     }
     func managerStateChanged(_ state: IndexManager.State) {
         refreshProgress()
-        if manager?.store == nil && !filters.additionalSelected && results.result?.hasAdditional != true { setState(.indexing) }
+        if state == .ready { coordinator.refreshFiles(sources: searchSources) }
     }
     private func refreshProgress() {
-        if let result = results.result, result.query.isEmpty { updateFooter(result) }
-        searchField.indexing = additionalPending
+        if (results.snapshot == nil || scopes.scope == .files), let result = results.result, result.query.isEmpty { updateFooter(result) }
         guard let manager else { return }
         supplementaryProvider?.backgroundIndexingChanged(manager.state == .loading || manager.state == .scanning || manager.isRescanning)
-        additionalSearchProvider?.backgroundIndexingChanged(manager.state == .loading || manager.state == .scanning || manager.isRescanning)
-        searchField.indexing = additionalPending || !filters.additionalSelected && (manager.state == .scanning || manager.isRescanning)
-        if manager.store == nil && !filters.additionalSelected {
+        searchField.indexing = manager.state == .scanning || manager.isRescanning
+        if manager.store == nil && scopes.scope == .files {
             let count = manager.scannedCount
             indexing.updateCount(count); footer.text = L10n.text("footer.indexing", Presentation.countText(count))
         }
     }
     func startSearch(preserveSelection: Bool = false) {
-        pendingNewSearch = preserveSelection
-        results.cancelPendingRefresh()
-        search(refresh: false, preserveSelection: preserveSelection)
-    }
-    private func refreshSearch() {
-        // Index notifications must not turn an uncommitted user query into a refresh.
-        if let preserveSelection = pendingNewSearch {
-            search(refresh: false, preserveSelection: preserveSelection)
-        } else if results.result == nil {
-            startSearch()
-        } else {
-            search(refresh: true, preserveSelection: false)
-        }
-    }
-    private func search(refresh: Bool, preserveSelection: Bool) {
-        supplementaryProvider?.userActivity(visible: view.window?.isVisible == true, typing: !refresh && !preserveSelection)
-        let token = generation.next()
-        let sources = filters.additionalSelected ? [] : searchSources
-        let store = sources.first?.store
+        invalidateClipboardCopy()
+        _ = view
+        preserveFirstSelection = preserveSelection; userNavigated = false; results.cancelPendingRefresh()
+        footer.actionable = false
+        supplementaryProvider?.userActivity(visible: view.window?.isVisible == true, typing: !preserveSelection)
+        let composing = searchField.editor.hasMarkedText()
+        let effective = SearchRoute.effectiveScope(searchField.text, requested: requestedScope, composing: composing)
+        if effective != scopes.scope { scopes.scope = effective; view.needsLayout = true }
         var options = filters.options
+        if scopes.scope == .all { options.kind = nil }
         if !snapshot { options.pinyin = UserDefaults.standard.bool(forKey: "pinyinEnabled") }
-        let query = editingQuery(store: store), previous = results.result
-        let cancelled = { [generation] in !generation.current(token) }
-        let supplementary = filters.additionalSelected ? nil : supplementaryProvider?.prepareSearch(query, options: options, sources: sources, isCancelled: cancelled)
-        let additional = additionalSearchProvider.flatMap { provider in
-            provider.isEnabled && (filters.additionalSelected || options.kind == nil) ? provider.prepareSearch(query, isCancelled: cancelled) : nil
+        let defaults = UserDefaults.standard
+        coordinator.search(raw: searchField.text, scope: scopes.scope, options: options, store: manager?.store,
+                           editingRange: searchField.input.currentEditor() == nil ? nil : searchField.editor.selectedRange(), composing: composing,
+                           apps: applications.apps, clipboard: clipboard.entries, clipboardEnabled: clipboard.enabled,
+                           calculator: snapshot || defaults.bool(forKey: "calculatorEnabled"), web: snapshot || defaults.bool(forKey: "webSearchEnabled"),
+                           engine: WebSearchEngine(rawValue: defaults.string(forKey: "webSearchEngine") ?? "duckDuckGo") ?? .duckDuckGo,
+                           sources: searchSources, supplementaryProvider: supplementaryProvider)
+    }
+    func startSources() {
+        guard !snapshot else { return }
+        applications.start(excludedPaths: UserDefaults.standard.stringArray(forKey: "userExcludedPaths") ?? [])
+        clipboard.start()
+    }
+    func stopSources() { applications.stop(); clipboard.stop() }
+    func selectScope(_ scope: SearchScope) {
+        if scope == .clipboard { _ = clipboard.search("") }
+        requestedScope = scope
+        scopes.scope = scope; quickLook.close(); clipboardPreview?.close(); view.needsLayout = true
+        searchField.focus(); startSearch()
+    }
+    private func refreshSources() {
+        guard isViewLoaded, !snapshot else { return }
+        let defaults = UserDefaults.standard
+        coordinator.refreshSources(apps: applications.apps, clipboard: clipboard.entries, clipboardEnabled: clipboard.enabled,
+                                   calculator: snapshot || defaults.bool(forKey: "calculatorEnabled"), web: snapshot || defaults.bool(forKey: "webSearchEnabled"),
+                                   engine: WebSearchEngine(rawValue: defaults.string(forKey: "webSearchEngine") ?? "duckDuckGo") ?? .duckDuckGo)
+    }
+    private func snapshotDidChange(_ found: SearchSnapshot) {
+        if let file = found.filePresentation { configureEmpty(file) }
+        else { empty.configure(diagnostic: nil, hasNoAccess: false) }
+        setState(found.count == 0 ? (found.filesPending ? .indexing : .empty) : nil)
+        footer.warning = !diagnostics.isEmpty
+        if found.scope == .files, let file = found.filePresentation { updateFooter(file) }
+        else if found.scope == .clipboard {
+            footer.text = clipboard.error ?? (clipboard.needsAccess ? L10n.text("clipboard.accessHint") : L10n.text("clipboard.count", String(found.count)))
+        } else { footer.text = L10n.text("launcher.count", String(found.count)) }
+        updateActionHints(); refreshProgress()
+    }
+    private func refreshClipboardStatus() {
+        guard scopes.scope == .clipboard, let found = results.snapshot else { return }
+        snapshotDidChange(found)
+    }
+    private var canPreviewSelection: Bool {
+        if results.snapshot == nil { return results.selectedItem != nil }
+        switch results.selectedLauncherRow {
+        case .file?, .clipboard?: return true
+        default: return false
         }
-        additionalSearchFailed = false
-        additionalPending = additional != nil
-        if sources.isEmpty && additional == nil {
-            pendingNewSearch = nil
-            results.clear(preservingViewport: true)
-            setState(manager != nil && manager?.store == nil ? .indexing : .empty)
-            footer.text = L10n.text("footer.results", Presentation.countText(0), Presentation.elapsedText(0))
-            refreshProgress(); return
-        }
-        refreshProgress()
-        let additionalBox = AdditionalSearchBox()
-        let group = DispatchGroup()
-        let box = SupplementarySearchBox()
-        if let supplementary {
-            group.enter()
-            supplementQueue.async { box.hits = supplementary(); group.leave() }
-        }
-        if let additional {
-            group.enter()
-            additionalQueue.async {
-                let began = CFAbsoluteTimeGetCurrent()
-                do { additionalBox.items = try additional() } catch { additionalBox.failed = true }
-                additionalBox.elapsedMs = (CFAbsoluteTimeGetCurrent() - began) * 1000
-                group.leave()
-            }
-        }
-        let anchor = refresh || preserveSelection ? selectionAnchor : nil
-        queue.async { [weak self] in
-            guard let self, self.generation.current(token) else { return }
-            let found: SearchPresentation
-            if sources.isEmpty { found = SearchPresentation(query: query) }
-            else if sources.count == 1 && sources[0].id == "startup", let store {
-                if !self.sourceCaches.isEmpty { self.sourceCaches.removeAll(); self.sourceCacheStores.removeAll() }
-                if previous?.single?.store !== store { self.cache.removeAll() }
-                guard let result = self.cache.lookup(query: query, options: options, store: store)
-                    ?? Searcher.search(query, options: options, in: store, previous: previous?.single, isCancelled: { !self.generation.current(token) }), self.generation.current(token) else { return }
-                self.cache.insert(result); found = SearchPresentation(result)
-            } else {
-                if previous?.single != nil { self.cache.removeAll() }
-                self.sourceCaches = self.sourceCaches.filter { key, _ in sources.contains { $0.id == key } }
-                self.sourceCacheStores = self.sourceCacheStores.filter { key, _ in sources.contains { $0.id == key } }
-                for source in sources {
-                    let identity = ObjectIdentifier(source.store)
-                    if self.sourceCacheStores[source.id] != identity {
-                        self.sourceCaches[source.id] = SearchCache(); self.sourceCacheStores[source.id] = identity
-                    }
-                }
-                guard let result = MultiSearcher.search(query, options: options, in: sources, previous: previous?.multiple, caches: self.sourceCaches, isCancelled: { !self.generation.current(token) }), self.generation.current(token) else { return }
-                found = SearchPresentation(result)
-            }
-            let anchoredRow = anchor.flatMap { found.index(sourceID: $0.sourceID, store: $0.store, id: $0.id, path: $0.path) }
-            let row = anchoredRow ?? 0
-            let deferNames = sources.isEmpty && additional != nil || previous?.query.raw == query.raw && ((refresh || preserveSelection) && previous?.hasAdditional == true || anchor != nil && anchoredRow == nil && supplementary != nil)
-            DispatchQueue.main.async { [weak self] in
-                guard let self, self.generation.current(token) else { return }
-                self.diagnostics = query.diagnostics
-                if deferNames { return }
-                if refresh {
-                    self.results.refresh(found)
-                } else {
-                    self.pendingNewSearch = nil
-                    if preserveSelection, self.results.result != nil { self.results.refresh(found) }
-                    else { self.present(found, selection: row, resetScroll: !preserveSelection) }
-                }
-            }
-            if supplementary != nil || additional != nil {
-                group.notify(queue: self.queue) { [weak self] in
-                    guard let self, self.generation.current(token) else { return }
-                    if additional == nil && box.hits.isEmpty && !deferNames { return }
-                    let files = box.hits.isEmpty ? found : found.supplement(box.hits, options: options)
-                    let combined = files.including(additionalBox.items, options: options, elapsedMs: additionalBox.elapsedMs)
-                    DispatchQueue.main.async { [weak self] in
-                        guard let self, self.generation.current(token), combined.isCurrent(self.searchSources) else { return }
-                        self.pendingNewSearch = nil; self.additionalPending = false; self.additionalSearchFailed = additionalBox.failed
-                        if additionalBox.failed, previous?.query.raw == query.raw, previous?.hasAdditional == true {
-                            self.refreshProgress()
-                            self.footer.warning = true; self.footer.text = self.additionalSearchProvider?.status ?? L10n.text("search.failed")
-                            return
-                        }
-                        if sources.isEmpty && !refresh && !preserveSelection { self.present(combined) }
-                        else { self.results.refresh(combined) }
-                        if additionalBox.failed { self.footer.warning = true; self.footer.text = L10n.text("search.failed") }
-                    }
-                }
-            }
-        }
+    }
+    private func updateActionHints() {
+        footer.spacePreview = browsingResults && previewWithSpace && canPreviewSelection
+        footer.setRow(results.selectedLauncherRow)
     }
     func present(_ result: SearchResult, selection: Int = 0, resetScroll: Bool = true) { present(SearchPresentation(result), selection: selection, resetScroll: resetScroll) }
     func present(_ result: SearchPresentation, selection: Int = 0, resetScroll: Bool = true) {
@@ -371,6 +336,7 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
         })
     }
     private func refreshDiagnostics() {
+        guard results.snapshot == nil || scopes.scope == .files else { return }
         let query = editingQuery(store: manager?.store ?? results.result?.store)
         guard let result = results.result, result.query.raw == query.raw else { return }
         diagnostics = query.diagnostics
@@ -382,7 +348,7 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
     func toggleSyntax(_ show: Bool? = nil) {
         let visible = show ?? !syntaxVisible
         syntaxVisible = visible
-        footer.actionable = !visible && stateView == nil && (results.result?.total ?? 0) > 0
+        footer.actionable = !visible && stateView == nil && results.rowCount > 0
         syntax.isHidden = false
         Theme.Motion.opacity(syntax, to: visible ? 1 : 0, using: snapshot ? nil : Theme.Motion.chip)
         if let layer = syntax.layer { Theme.Motion.animate(layer, "transform.translation.y", to: visible ? 0 : 8, using: snapshot ? nil : Theme.Motion.chip) }
@@ -413,38 +379,28 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
     }
     func prepareSnapshot(state: String, query: String, options: SearchOptions, store: IndexStore?, selection: Int, additionalSources: [SearchSource] = [], additionalOnly: Bool = false) throws {
         _ = view
+        requestedScope = .files; scopes.scope = .files; view.needsLayout = true
         searchField.text = state == "recent" ? "" : query; filters.options = options
         if state == "indexing" {
             setState(.indexing); indexing.updateCount(1_234_567); searchField.indexing = true
             footer.text = L10n.text("footer.indexing", Presentation.countText(1_234_567)); return
         }
-        if additionalOnly || additionalSearchProvider?.isEnabled == true {
-            if additionalOnly { filters.select(FilterBar.names.count, notify: false); refreshAdditionalFilter() }
-            _ = generation.next(); pendingNewSearch = nil
-            let query = Query.parse(searchField.text, store: store)
-            let sources = additionalOnly ? [] : store.map { [SearchSource(id: "startup", displayName: "", isOnline: true, store: $0)] + additionalSources } ?? additionalSources
-            let files: SearchPresentation
-            if sources.isEmpty { files = SearchPresentation(query: query) }
-            else if let found = MultiSearcher.search(query, options: options, in: sources) {
-                let hits = supplementaryProvider?.prepareSearch(query, options: options, sources: sources, isCancelled: { false })() ?? []
-                files = hits.isEmpty ? SearchPresentation(found) : SearchPresentation(found).supplement(hits, options: options)
-            } else { throw SnapshotError.failed("Cannot search snapshot index") }
-            let began = CFAbsoluteTimeGetCurrent()
-            let items = additionalOnly || options.kind == nil ? try additionalSearchProvider?.prepareSearch(query, isCancelled: { false })() ?? [] : []
-            diagnostics = query.diagnostics; present(files.including(items, options: options, elapsedMs: (CFAbsoluteTimeGetCurrent() - began) * 1000), selection: selection); return
-        }
-        if let store, let supplementaryProvider {
-            let sources = [SearchSource(id: "startup", displayName: "", isOnline: true, store: store)] + additionalSources
-            let query = Query.parse(searchField.text, store: store)
+        guard let store else { throw SnapshotError.failed("Cannot search snapshot index") }
+        let sources = [SearchSource(id: "startup", displayName: "", isOnline: true, store: store)] + additionalSources
+        let query = Query.parse(searchField.text, store: store)
+        let found: SearchPresentation
+        if let supplementaryProvider {
             let hits = supplementaryProvider.prepareSearch(query, options: options, sources: sources, isCancelled: { false })()
-            guard let found = MultiSearcher.search(query, options: options, in: sources) else { throw SnapshotError.failed("Cannot search snapshot index") }
-            diagnostics = query.diagnostics; present(SearchPresentation(found).supplement(hits, options: options), selection: selection); return
+            guard let result = MultiSearcher.search(query, options: options, in: sources) else { throw SnapshotError.failed("Cannot search snapshot index") }
+            found = SearchPresentation(result).supplement(hits, options: options)
+        } else if !additionalSources.isEmpty {
+            guard let result = MultiSearcher.search(query, options: options, in: sources) else { throw SnapshotError.failed("Cannot search snapshot index") }
+            found = SearchPresentation(result)
+        } else {
+            guard let result = Searcher.search(query, options: options, in: store) else { throw SnapshotError.failed("Cannot search snapshot index") }
+            found = SearchPresentation(result)
         }
-        if let store, !additionalSources.isEmpty, let found = MultiSearcher.search(Query.parse(searchField.text, store: store), options: options, in: [SearchSource(id: "startup", displayName: "", isOnline: true, store: store)] + additionalSources) {
-            diagnostics = found.query.diagnostics; present(SearchPresentation(found), selection: selection); return
-        }
-        guard let store, let found = Searcher.search(Query.parse(searchField.text, store: store), options: options, in: store) else { throw SnapshotError.failed("Cannot search snapshot index") }
-        diagnostics = Query.parse(searchField.text, store: store).diagnostics
+        diagnostics = query.diagnostics
         snapshotNoAccess = state == "no-access"
         present(found, selection: selection)
         if state == "syntax" { toggleSyntax(true) }
@@ -454,9 +410,22 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
             footer.text = L10n.text("footer.results", Presentation.countText(0), Presentation.elapsedText(found.elapsedMs))
         }
     }
+    func prepareLauncherSnapshot(_ found: SearchSnapshot, clipboardEntries: [ClipboardEntry] = [], selection: Int = 0) throws {
+        guard snapshot else { throw SnapshotError.failed("Launcher fixtures require snapshot mode") }
+        _ = view
+        clipboard.prepareSnapshot(clipboardEntries)
+        requestedScope = found.scope; scopes.scope = found.scope; searchField.text = found.raw; view.needsLayout = true
+        results.show(found, selection: selection)
+        diagnostics = found.filePresentation?.query.diagnostics ?? []
+        snapshotDidChange(found)
+    }
     private var selectedURL: URL? {
-        guard stateView == nil else { return nil }
+        guard stateView == nil, resultIsCurrent else { return nil }
         return results.selectedItem.map { URL(fileURLWithPath: $0.path) }
+    }
+    private var resultIsCurrent: Bool {
+        guard let found = results.snapshot else { return true }
+        return found.raw == searchField.text && found.scope == scopes.scope
     }
     func handleKey(_ event: NSEvent) -> Bool {
         if (view.window as? SearchPanel)?.hiding == true { return true }
@@ -479,19 +448,22 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
         if syntaxVisible && event.keyCode == 53 { toggleSyntax(false); return true }
         if syntaxVisible { return false }
         if [126, 125, 116, 121, 115, 119].contains(event.keyCode) { setBrowsing(true) }
-        if event.keyCode == 49 && flags.intersection([.command, .control, .option, .shift]).isEmpty && browsingResults && previewWithSpace {
+        if event.keyCode == 49 && flags.intersection([.command, .control, .option, .shift]).isEmpty && browsingResults && previewWithSpace && canPreviewSelection {
             previewSelected(); return true
         }
         switch event.keyCode {
-        case 115: results.select(0, repeatKey: event.isARepeat); return true
-        case 119: results.select((results.result?.count ?? 1) - 1, repeatKey: event.isARepeat); return true
-        case 126: if command { results.select(0, repeatKey: event.isARepeat) } else { results.move(-1, repeatKey: event.isARepeat) }; return true
-        case 125: if command { results.select((results.result?.count ?? 1) - 1, repeatKey: event.isARepeat) } else { results.move(1, repeatKey: event.isARepeat) }; return true
-        case 116: results.page(-1, repeatKey: event.isARepeat); return true
-        case 121: results.page(1, repeatKey: event.isARepeat); return true
+        case 115: userNavigated = true; results.select(0, repeatKey: event.isARepeat); return true
+        case 119: userNavigated = true; results.select(results.rowCount - 1, repeatKey: event.isARepeat); return true
+        case 126: userNavigated = true; if command { results.select(0, repeatKey: event.isARepeat) } else { results.move(-1, repeatKey: event.isARepeat) }; return true
+        case 125: userNavigated = true; if command { results.select(results.rowCount - 1, repeatKey: event.isARepeat) } else { results.move(1, repeatKey: event.isARepeat) }; return true
+        case 116: userNavigated = true; results.page(-1, repeatKey: event.isARepeat); return true
+        case 121: userNavigated = true; results.page(1, repeatKey: event.isARepeat); return true
         case 36, 76: if command { revealSelected() } else { openSelected() }; return true
-        case 48: filters.cycle(flags.contains(.shift) ? -1 : 1); return true
-        case 53: if quickLook.isVisible { quickLook.close() } else { hidePanel?() }; return true
+        case 48:
+            if scopes.scope == .files { filters.cycle(flags.contains(.shift) ? -1 : 1) }
+            else { let index = SearchScope.allCases.firstIndex(of: scopes.scope)!; selectScope(SearchScope.allCases[(index + (flags.contains(.shift) ? 4 : 1)) % 5]) }
+            return true
+        case 53: if quickLook.isVisible { quickLook.close() } else if clipboardPreview?.isVisible == true { clipboardPreview?.close() } else { hidePanel?() }; return true
         case 51 where command: trashSelected(); return true
         default: break
         }
@@ -504,12 +476,44 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
             copyPath(); return true
         case "w": hidePanel?(); return true
         case ",": onSettings?(); return true
-        case "1"..."9": filters.select((Int(key) ?? 1) - 1); return true
+        case "0"..."9":
+            let number = Int(key) ?? 0
+            if option && number > 0 { requestedScope = .files; scopes.scope = .files; view.needsLayout = true; filters.select(number - 1) }
+            else if !option && number < 5 { selectScope(SearchScope.allCases[number]) }
+            return true
         default: return false
         }
     }
     private func openSelected() {
-        if let item = results.selectedAdditional { performAdditional(item, kind: .open); return }
+        guard stateView == nil, resultIsCurrent else { return }
+        if let row = results.selectedLauncherRow {
+            switch row {
+            case .app(let app):
+                guard FileManager.default.fileExists(atPath: app.path), NSWorkspace.shared.open(URL(fileURLWithPath: app.path)) else { NSSound.beep(); return }
+                applications.recordLaunch(app); hidePanel?(); return
+            case .setting(let setting):
+                if SystemSettingsCatalog.open(setting) { hidePanel?() } else { NSSound.beep() }; return
+            case .clipboard(let entry):
+                copyClipboardEntry(entry) { [weak self] in
+                    guard let self, let token = self.clipboard.latestCopyToken else { return }
+                    self.pasteController.pasteCurrentClipboard(isClipboardCurrent: { [weak self] in
+                        self?.clipboard.isClipboardCurrent(token) == true
+                    }, hidePanel: { [weak self] completion in
+                        guard let panel = self?.view.window as? SearchPanel else { self?.hidePanel?(); completion(); return }
+                        panel.hide(source: .interaction, completion: completion)
+                    }, completion: { [weak self] outcome in
+                        guard outcome != .sent, let self else { return }
+                        (self.view.window as? SearchPanel)?.show(source: .interaction)
+                        self.footer.showMessage(L10n.text(outcome == .clipboardChanged ? "clipboard.changed" : "clipboard.copiedOnly"))
+                    })
+                }; return
+            case .answer(let answer): copyText(answer.value); return
+            case .url(let url), .web(_, let url):
+                if NSWorkspace.shared.open(url) { hidePanel?() } else { NSSound.beep() }; return
+            case .enableClipboard: clipboard.setEnabled(true); startSearch(); return
+            case .file: break
+            }
+        }
         guard stateView == nil, (view.window as? SearchPanel)?.hiding != true, let url = selectedURL else { return }
         guard allowOnlineAction() else { return }
         guard FileManager.default.fileExists(atPath: url.path) else { NSSound.beep(); return }
@@ -519,11 +523,17 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
             self?.hidePanel?()
         }
     }
-    private func revealSelected() { guard stateView == nil, let url = selectedURL, allowOnlineAction() else { return }; NSWorkspace.shared.activateFileViewerSelecting([url]); hidePanel?() }
+    private func revealSelected() {
+        guard stateView == nil, resultIsCurrent else { return }
+        if case .clipboard(let entry)? = results.selectedLauncherRow, entry.filePaths != nil {
+            NSWorkspace.shared.activateFileViewerSelecting(entry.fileURLs); hidePanel?(); return
+        }
+        guard let url = selectedURL, allowOnlineAction() else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([url]); hidePanel?()
+    }
     @discardableResult
     private func allowOnlineAction() -> Bool {
         guard let item = results.selectedItem else { return false }
-        // Check the live provider as well as the submitted snapshot during an in-flight refresh.
         let current = searchSources.first { $0.id == item.source.id }
         guard item.source.isOnline && (snapshot || current?.isOnline == true) else {
             footer.warning = true; footer.actionable = false
@@ -532,20 +542,32 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
         }
         return snapshot || current?.store === item.source.store
     }
-    private func previewSelected() { if allowOnlineAction() { quickLook.toggle() } }
     private func copyPath() {
-        if let item = results.selectedAdditional { performAdditional(item, kind: .copy); return }
+        guard stateView == nil, resultIsCurrent else { return }
+        if let row = results.selectedLauncherRow {
+            switch row {
+            case .clipboard(let entry):
+                copyClipboardEntry(entry) { [weak self] in self?.footer.showMessage(L10n.text("clipboard.copied")) }; return
+            case .answer(let answer): copyText(answer.value); return
+            case .setting(let setting): copyText(setting.name); return
+            case .app(let app): copyText(app.path); return
+            case .url(let url), .web(_, let url): copyText(url.absoluteString); return
+            case .enableClipboard: return
+            case .file: break
+            }
+        }
         guard stateView == nil, let url = selectedURL else { return }
         NSPasteboard.general.clearContents(); NSPasteboard.general.writeObjects([url as NSURL]); NSPasteboard.general.setString(url.path, forType: .string)
         footer.showToast(.copiedPath, value: url.path)
     }
     private func copyName() {
-        if let item = results.selectedAdditional { performAdditional(item, kind: .copyName); return }
-        guard stateView == nil, let item = results.selectedItem else { return }
+        guard stateView == nil, resultIsCurrent, let item = results.selectedItem else { return }
         NSPasteboard.general.clearContents(); NSPasteboard.general.setString(item.name, forType: .string)
         footer.showToast(.copiedName, value: item.name)
     }
     private func trashSelected() {
+        guard stateView == nil, resultIsCurrent else { return }
+        if case .clipboard(let entry)? = results.selectedLauncherRow { clipboard.remove(entry.id); return }
         guard stateView == nil, let url = selectedURL, let item = results.selectedItem else { return }
         guard allowOnlineAction(), FileManager.default.fileExists(atPath: url.path), trashing.insert(url).inserted else { return }
         NSWorkspace.shared.recycle([url]) { [weak self] _, error in
@@ -578,10 +600,17 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
     }
     private func contextMenu() -> NSMenu {
         let menu = NSMenu(); menu.delegate = self
-        if let selected = results.selectedAdditional {
-            for action in selected.actions {
-                let item = NSMenuItem(title: action.title, action: #selector(additionalContextAction(_:)), keyEquivalent: "")
-                item.target = self; item.representedObject = action; menu.addItem(item)
+        if let row = results.selectedLauncherRow, results.selectedItem == nil {
+            var actions: [(String, Int)] = [("hint.open", 0), ("launcher.copy", 4)]
+            if case .clipboard(let entry) = row {
+                actions = [("clipboard.paste", 0), ("launcher.copy", 4), ("hint.preview", 2)]
+                if entry.filePaths != nil { actions += [("hint.reveal", 1), ("clipboard.copyPaths", 8)] }
+                actions.append(("clipboard.delete", 7))
+            }
+            if case .enableClipboard = row { actions = [("clipboard.enable", 0)] }
+            for (key, tag) in actions {
+                let item = NSMenuItem(title: L10n.text(key), action: #selector(contextAction(_:)), keyEquivalent: "")
+                item.target = self; item.tag = tag; menu.addItem(item)
             }
             return menu
         }
@@ -595,12 +624,71 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
         return menu
     }
     @objc private func contextAction(_ item: NSMenuItem) {
-        switch item.tag { case 0: openSelected(); case 1: revealSelected(); case 2: previewSelected(); case 4: copyPath(); case 5: copyName(); case 7: trashSelected(); default: break }
+        switch item.tag {
+        case 0: openSelected(); case 1: revealSelected(); case 2: previewSelected(); case 4: copyPath()
+        case 5: copyName(); case 7: trashSelected()
+        case 8:
+            guard resultIsCurrent, case .clipboard(let entry)? = results.selectedLauncherRow else { return }
+            copyText(entry.text)
+        default: break
+        }
+    }
+    private func invalidateClipboardCopy() {
+        clipboardActionGeneration += 1
+        pendingClipboardID = nil
+        clipboard.cancelCopy()
+    }
+    private func copyClipboardEntry(_ entry: ClipboardEntry, completion: @escaping () -> Void) {
+        invalidateClipboardCopy()
+        let generation = clipboardActionGeneration
+        let query = searchField.text, scope = scopes.scope
+        pendingClipboardID = entry.id
+        if entry.filePaths != nil { footer.showMessage(L10n.text("clipboard.checkingFiles")) }
+        clipboard.copy(entry, isCurrent: { [weak self] in
+            guard let self, self.clipboardActionGeneration == generation, self.stateView == nil,
+                  self.searchField.text == query, self.scopes.scope == scope, self.resultIsCurrent,
+                  case .clipboard(let selected)? = self.results.selectedLauncherRow,
+                  selected.id == entry.id, selected.content == entry.content else { return false }
+            if let window = self.view.window {
+                return window.isVisible && window.isKeyWindow && (window as? SearchPanel)?.hiding != true
+            }
+            return true
+        }, completion: { [weak self] outcome in
+            guard let self, self.clipboardActionGeneration == generation else { return }
+            self.pendingClipboardID = nil
+            switch outcome {
+            case .copied: completion()
+            case .failed: self.footer.showMessage(self.clipboard.error ?? L10n.text("clipboard.failure.copyFailed")); NSSound.beep()
+            case .cancelled: self.refreshClipboardStatus()
+            }
+        })
+    }
+    private func copyText(_ text: String) {
+        NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string)
+        footer.showMessage(L10n.text("clipboard.copied"))
+    }
+    private func previewSelected() {
+        guard stateView == nil, resultIsCurrent else { return }
+        guard case .clipboard(let entry)? = results.selectedLauncherRow else {
+            if allowOnlineAction() { quickLook.toggle() }; return
+        }
+        if clipboardPreview?.isVisible == true { clipboardPreview?.close(); return }
+        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 620, height: 380), styleMask: [.titled, .closable, .resizable, .nonactivatingPanel], backing: .buffered, defer: false)
+        panel.title = entry.filePaths == nil ? L10n.text("scope.clipboard") : entry.displayTitle
+        panel.isReleasedWhenClosed = false; panel.level = .floating
+        let scroll = NSScrollView(frame: panel.contentView!.bounds); scroll.autoresizingMask = [.width, .height]; scroll.hasVerticalScroller = true
+        let text = NSTextView(frame: scroll.bounds); text.isEditable = false; text.string = entry.text; text.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        text.textContainerInset = NSSize(width: 16, height: 16); text.autoresizingMask = [.width]; scroll.documentView = text
+        panel.contentView = scroll; panel.center(); panel.orderFrontRegardless(); clipboardPreview = panel
+    }
+    func panelDidHide() {
+        supplementaryProvider?.userActivity(visible: false, typing: false)
+        invalidateClipboardCopy(); quickLook.close(); clipboardPreview?.close()
     }
     func menuWillOpen(_ menu: NSMenu) { menuTracking = true }
     func menuDidClose(_ menu: NSMenu) { menuTracking = false; hideIfInactive() }
     private func hideIfInactive() {
-        if view.window?.isKeyWindow == false && !quickLook.isVisible && !menuTracking && !dragging { hidePanel?() }
+        if view.window?.isKeyWindow == false && !quickLook.isVisible && clipboardPreview?.isVisible != true && !menuTracking && !dragging { hidePanel?() }
     }
     func windowDidResignKey(_ notification: Notification) {
         // Quick Look visibility settles after the key-window transition.

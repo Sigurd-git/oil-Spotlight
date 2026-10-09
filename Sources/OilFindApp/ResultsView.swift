@@ -65,6 +65,7 @@ final class ResultCell: NSTableCellView {
         }
     }
     func configure(_ item: ResultItem, query: Query, icons: IconProvider) {
+        dateLabel.isHidden = false; sizeLabel.isHidden = false
         configuration += 1
         sizeLabel.lineBreakMode = .byTruncatingTail
         let token = configuration
@@ -101,23 +102,27 @@ final class ResultCell: NSTableCellView {
         }
         needsLayout = true
     }
-    func configure(_ item: AdditionalSearchItem, query: Query) {
-        configuration += 1; displayingThumbnail = false; updateThumbnailStyle()
-        func highlighted(_ text: String, font: NSFont, color: NSColor) -> NSAttributedString {
-            let value = NSMutableAttributedString(string: text, attributes: [.font: font, .foregroundColor: color])
-            for range in Presentation.highlightRanges(name: text, query: query) {
-                value.addAttribute(.foregroundColor, value: NSColor.controlAccentColor, range: range)
-            }
-            return value
-        }
-        nameLabel.attributedStringValue = highlighted(item.title, font: nameLabel.font!, color: .labelColor)
+    func configure(_ row: LauncherRow, icons: IconProvider) {
+        configuration += 1
+        let token = configuration
+        displayingThumbnail = false; updateThumbnailStyle()
         detailLabel.isHidden = true; detailLabel.stringValue = ""
-        pathLabel.attributedStringValue = highlighted(item.detail, font: pathLabel.font!, color: .secondaryLabelColor)
-        dateLabel.stringValue = Presentation.dateText(item.modified, now: Date(), calendar: .current, chinese: L10n.chinese)
-        sizeLabel.stringValue = item.location; sizeLabel.lineBreakMode = .byTruncatingMiddle
-        icon.image = item.icon; toolTip = item.location + "\n" + item.detail; needsLayout = true
+        nameLabel.stringValue = row.title
+        pathLabel.stringValue = row.subtitle
+        dateLabel.isHidden = true; sizeLabel.isHidden = true
+        toolTip = row.title + "\n" + row.subtitle
+        icon.image = Theme.symbol(row.symbol, size: 28, weight: .regular)
+        if case .app(let app) = row {
+            icon.image = icons.icon(name: app.name, path: app.path, flags: SiftFlag.dir | SiftFlag.package, kind: 2) { [weak self] image in
+                if self?.configuration == token { self?.icon.image = image }
+            }
+        }
+        if case .clipboard(let entry) = row, let path = entry.filePaths?.first {
+            icon.image = icons.icon(name: (path as NSString).lastPathComponent, path: path, flags: 0, kind: 0, loadFileIcon: true) { [weak self] image in
+                if self?.configuration == token { self?.icon.image = image }
+            }
+        }
     }
-
 }
 
 private final class ResultTable: NSTableView {
@@ -203,13 +208,22 @@ final class ResultsView: FlippedView, NSTableViewDataSource, NSTableViewDelegate
     var result: SearchPresentation?
     var currentSource: ((String) -> SearchSource?)?
     var onPointerSelection: (() -> Void)?
+    private var pendingSnapshot: SearchSnapshot?
+    private var retainedSelection: (identity: String, fileID: UInt32?, store: IndexStore?, sourceID: String?, origin: NSPoint)?
+    private(set) var snapshot: SearchSnapshot?
+    var onSnapshotApplied: ((SearchSnapshot) -> Void)?
+    var rowCount: Int { snapshot?.count ?? result?.count ?? 0 }
+    var selectedLauncherRow: LauncherRow? { snapshot?.row(at: selectedRow) }
     var onOpen: (() -> Void)?
     var onSelection: (() -> Void)?
+    var onUserNavigation: (() -> Void)?
+    var canPerformFileActions: (() -> Bool)?
     var onContextMenu: ((Int) -> NSMenu?)?
     var onDragging: ((Bool) -> Void)?
     var onRefreshApplied: ((SearchPresentation) -> Void)?
     var selectedRow: Int { table.selectedRow }
     var selectedID: UInt32? {
+        if let snapshot { if case .file(let item)? = snapshot.row(at: selectedRow) { return item.id }; return nil }
         guard let result, selectedRow >= 0 && selectedRow < result.count else { return nil }
         return result.row(selectedRow)?.id
     }
@@ -232,7 +246,9 @@ final class ResultsView: FlippedView, NSTableViewDataSource, NSTableViewDelegate
         table.onPointerSelection = { [weak self] in self?.onPointerSelection?() }
         table.onPointerMove = { [weak self] in self?.recomputeHover() }
         table.onPointerExit = { [weak self] in self?.hideHover() }
-        table.onPointerReselection = { [weak self] in self?.updateSelection(animated: false) }
+        table.onPointerReselection = { [weak self] in
+            self?.retainedSelection = nil; self?.onUserNavigation?(); self?.updateSelection(animated: false)
+        }
         scroll.onScrollWheel = { [weak self] event in self?.wheelScrolled(event) }
         scroll.documentView = table; addSubview(scroll)
         table.addSubview(hoverPlate, positioned: .below, relativeTo: nil); hoverPlate.alphaValue = 0
@@ -257,7 +273,7 @@ final class ResultsView: FlippedView, NSTableViewDataSource, NSTableViewDelegate
         cancelPendingRefresh(); hideHover(immediately: true)
         refreshing = true
         table.minimumDocumentHeight = 0
-        self.result = result; table.reloadData()
+        snapshot = nil; self.result = result; table.reloadData()
         select(selection)
         if resetScroll { scroll.contentView.scroll(to: NSPoint(x: 0, y: -6)); scroll.reflectScrolledClipView(scroll.contentView) }
         updateSelection(animated: false); refreshing = false
@@ -269,11 +285,33 @@ final class ResultsView: FlippedView, NSTableViewDataSource, NSTableViewDelegate
         let origin = scroll.contentView.bounds.origin
         if preservingViewport { table.minimumDocumentHeight = max(table.minimumDocumentHeight, origin.y + scroll.contentView.bounds.height) }
         else { table.minimumDocumentHeight = 0 }
-        cancelPress(); result = nil; selectionIdentity = nil; additionalSelectionID = nil
+        cancelPress(); result = nil; snapshot = nil; selectionIdentity = nil; retainedSelection = nil
         table.reloadData(); table.deselectAll(nil); updateSelection(animated: false); hideHover(immediately: true)
         if preservingViewport { scroll.contentView.scroll(to: origin); scroll.reflectScrolledClipView(scroll.contentView) }
     }
-    func cancelPendingRefresh() { pendingRefresh = nil; pendingClear = false }
+    func cancelPendingRefresh() { pendingRefresh = nil; pendingSnapshot = nil; pendingClear = false }
+    func show(_ snapshot: SearchSnapshot, selection: Int = 0, resetScroll: Bool = true) {
+        cancelPendingRefresh(); retainedSelection = nil; hideHover(immediately: true); refreshing = true
+        if resetScroll { table.minimumDocumentHeight = 0 }
+        else { table.minimumDocumentHeight = max(table.minimumDocumentHeight, scroll.contentView.bounds.origin.y + scroll.contentView.bounds.height) }
+        self.snapshot = snapshot; result = snapshot.filePresentation; table.reloadData(); setSelection(selection, reveal: resetScroll)
+        if resetScroll { scroll.contentView.scroll(to: NSPoint(x: 0, y: -6)); scroll.reflectScrolledClipView(scroll.contentView) }
+        updateSelection(animated: false); refreshing = false; rememberSelection(); recomputeHover(); onSelection?()
+    }
+    func refresh(_ snapshot: SearchSnapshot, preserveSelection: Bool = true) {
+        if scrolling || dragging { pendingSnapshot = snapshot; return }
+        let row = selectedLauncherRow
+        let origin = scroll.contentView.bounds.origin
+        let anchor = retainedSelection ?? row.map { (identity: $0.identity, fileID: selectedID, store: selectedItem?.source.store, sourceID: selectedItem?.source.id, origin: origin) }
+        let position = preserveSelection ? anchor.flatMap { snapshot.position(of: $0.identity, fileID: $0.fileID, store: $0.store, sourceID: $0.sourceID) } : nil
+        let pending = preserveSelection && snapshot.filesPending && position == nil ? anchor : nil
+        let selected = position ?? max(0, selectedRow)
+        show(snapshot, selection: selected, resetScroll: false)
+        retainedSelection = pending
+        var rect = scroll.contentView.bounds; rect.origin = position == nil ? origin : anchor?.origin ?? origin
+        scroll.contentView.scroll(to: scroll.contentView.constrainBoundsRect(rect).origin); scroll.reflectScrolledClipView(scroll.contentView)
+        onSnapshotApplied?(snapshot)
+    }
     func localize() {
         guard !scrolling, !dragging else { pendingLocalization = true; return }
         pendingLocalization = false
@@ -364,12 +402,14 @@ final class ResultsView: FlippedView, NSTableViewDataSource, NSTableViewDelegate
     private func finishInteraction() {
         guard !scrolling, !dragging else { return }
         if pendingClear { clear(preservingViewport: true) }
+        else if let pendingSnapshot { self.pendingSnapshot = nil; refresh(pendingSnapshot) }
         else if let pendingRefresh { refresh(pendingRefresh) }
         if pendingLocalization { localize() }
         recomputeHover()
     }
     deinit { scrollEnd?.cancel(); NotificationCenter.default.removeObserver(self) }
     func item(at row: Int) -> ResultItem? {
+        if let snapshot { if case .file(let item)? = snapshot.row(at: row) { return currentItem(item) }; return nil }
         guard let result, let hit = result.row(row) else { return nil }
         let source: SearchSource
         if let currentSource { guard let current = currentSource(hit.source.id) else { return nil }; source = SearchSource(id: current.id, displayName: current.displayName, isOnline: current.isOnline && current.store === hit.source.store, store: hit.source.store) }
@@ -382,22 +422,31 @@ final class ResultsView: FlippedView, NSTableViewDataSource, NSTableViewDelegate
                               size: store.size(id), modified: store.modified(id), flags: store.flags[Int(id)], kind: store.kind[Int(id)])
         }
     }
+    private func currentItem(_ item: ResultItem) -> ResultItem? {
+        guard let currentSource else { return item }
+        guard let current = currentSource(item.source.id) else { return nil }
+        let source = SearchSource(id: current.id, displayName: current.displayName,
+                                  isOnline: current.isOnline && current.store === item.source.store, store: item.source.store)
+        return ResultItem(detail: item.detail, id: item.id, source: source, name: item.name, parentPath: item.parentPath,
+                          path: item.path, size: item.size, modified: item.modified, flags: item.flags, kind: item.kind)
+    }
     var selectedItem: ResultItem? { item(at: selectedRow) }
     var selectedAdditional: AdditionalSearchItem? { result?.additional(at: selectedRow) }
     func select(_ row: Int, repeatKey: Bool = false) {
+        if !refreshing { retainedSelection = nil }
         repeating = repeatKey; defer { repeating = false }
         setSelection(row, reveal: true)
     }
     private func setSelection(_ row: Int, reveal: Bool) {
-        guard let result, result.count > 0 else { table.deselectAll(nil); return }
-        let row = min(max(0, row), result.count - 1)
+        guard rowCount > 0 else { table.deselectAll(nil); return }
+        let row = min(max(0, row), rowCount - 1)
         table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
         if reveal { table.scrollRowToVisible(row) }
     }
     func move(_ delta: Int, repeatKey: Bool = false) {
-        guard let result, result.count > 0 else { return }
+        guard rowCount > 0 else { return }
         let target = max(0, selectedRow) + delta
-        if !repeatKey && (target < 0 || target >= result.count) { nudge(delta) }
+        if !repeatKey && (target < 0 || target >= rowCount) { nudge(delta) }
         select(target, repeatKey: repeatKey)
     }
     func page(_ delta: Int, repeatKey: Bool = false) { select(max(0, selectedRow) + delta * max(1, Int(scroll.contentSize.height / Theme.rowHeight)), repeatKey: repeatKey) }
@@ -437,7 +486,7 @@ final class ResultsView: FlippedView, NSTableViewDataSource, NSTableViewDelegate
         pendingPress = false; pressGeneration += 1
         if let layer = selectionPlate.layer { Theme.Motion.animate(layer, "transform.scale", to: 1, using: Theme.Motion.basic(Theme.Motion.press)) }
     }
-    func numberOfRows(in tableView: NSTableView) -> Int { result?.count ?? 0 }
+    func numberOfRows(in tableView: NSTableView) -> Int { rowCount }
     func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
         let identifier = NSUserInterfaceItemIdentifier("row")
         let view = tableView.makeView(withIdentifier: identifier, owner: self) as? ResultRow ?? ResultRow(frame: .zero)
@@ -447,8 +496,9 @@ final class ResultsView: FlippedView, NSTableViewDataSource, NSTableViewDelegate
         let identifier = NSUserInterfaceItemIdentifier("cell")
         let cell = tableView.makeView(withIdentifier: identifier, owner: self) as? ResultCell ?? ResultCell(frame: .zero)
         cell.identifier = identifier
-        if let item = result?.additional(at: row), let result { cell.configure(item, query: result.query) }
-        else if let item = item(at: row), let result { cell.configure(item, query: result.query, icons: icons) }
+        if let item = item(at: row), let result { cell.configure(item, query: result.query, icons: icons) }
+        else if let item = snapshot?.row(at: row) { cell.configure(item, icons: icons) }
+        else { return nil }
         return cell
     }
     private func rememberSelection() {
@@ -459,10 +509,13 @@ final class ResultsView: FlippedView, NSTableViewDataSource, NSTableViewDelegate
     }
     func tableViewSelectionDidChange(_ notification: Notification) {
         guard !refreshing else { return }
+        retainedSelection = nil
+        if table.selectingWithPointer { onUserNavigation?() }
         rememberSelection(); updateSelection(animated: !table.selectingWithPointer); recomputeHover(); onSelection?()
     }
     @objc private func doubleClicked() { if table.clickedRow >= 0 { onOpen?() } }
     func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? {
+        guard canPerformFileActions?() != false else { return nil }
         guard let item = item(at: row), item.source.isOnline else { return nil }
         return NSURL(fileURLWithPath: item.path)
     }

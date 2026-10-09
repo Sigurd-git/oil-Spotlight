@@ -9,7 +9,7 @@ export function TopBar({ lang, page = 'home' }: { lang: Language; page?: SitePag
     <a className="nav" href={pagePath(lang, 'pro')}>{proCopy[lang].nav}</a>
     {(page === 'pro' || page === 'syntax' || page === 'everything-for-mac') && <LanguageLink lang={lang} page={page} />}
     {page === 'home' && <>
-      <a className="nav hide-s" href="#speed">{t['nav.speed']}</a>
+      <a className="nav hide-s" href="#scopes">{t['nav.speed']}</a>
       <a className="nav hide-s" href="#syntax">{t['nav.syntax']}</a>
       <a className="nav" href={GITHUB_URL}>{t['nav.github']}</a>
       <LanguageLink lang={lang} page={page} />
