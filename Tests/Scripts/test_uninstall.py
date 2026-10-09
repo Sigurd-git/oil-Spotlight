@@ -57,6 +57,7 @@ elif args[0] == 'write':
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(values, {})
         self.assertIn(["security", "delete-generic-password", "-s", "com.oiloil.find.trial"], calls)
+        self.assertIn(["security", "delete-generic-password", "-s", "com.oiloil.find.clipboard-history", "-a", "aes-gcm-v1"], calls)
         self.assertEqual(sum(call[0] == "rm" for call in calls), 1)
 
     def test_default_preserves_both_pro_anchors_and_purge_removes_them(self):

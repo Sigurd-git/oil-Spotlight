@@ -88,6 +88,9 @@ extension M26UITests {
         XCTAssertFalse(controller.handleKey(space))
         XCTAssertEqual(controller.footer.previewKey, "⌘Y")
         for code: UInt16 in [126, 125, 116, 121, 115, 119] {
+            // The unified coordinator may publish non-file rows after onChange.
+            try controller.prepareSnapshot(state: "results", query: "row", options: .init(), store: store, selection: 0)
+            XCTAssertNotNil(controller.results.selectedItem)
             XCTAssertTrue(controller.handleKey(key(code)))
             XCTAssertTrue(controller.browsingResults)
             XCTAssertEqual(controller.footer.previewKey, L10n.text("hint.space"))
@@ -129,7 +132,9 @@ extension M26UITests {
             QLPreviewPanel.shared().close()
             panel.close()
             RunLoop.main.run(until: Date().addingTimeInterval(0.3))
-            QLPreviewPanel.shared().orderOut(nil)
+            let preview = QLPreviewPanel.shared()!
+            preview.dataSource = nil; preview.delegate = nil
+            preview.orderOut(nil)
         }
         let controller = panel.searchController
         try controller.prepareSnapshot(state: "results", query: "row", options: .init(sort: .name, ascending: true), store: store, selection: 0)

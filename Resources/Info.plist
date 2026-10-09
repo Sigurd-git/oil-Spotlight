@@ -35,6 +35,8 @@
 	<string>14.0</string>
 	<key>LSUIElement</key>
 	<true/>
+	<key>OilFindUpdateChannel</key>
+	<string>spotlight-fork</string>
 	<key>NSDesktopFolderUsageDescription</key>
 	<string>Oil Find 需要读取这里的文件名来建立搜索索引。</string>
 	<key>NSDocumentsFolderUsageDescription</key>

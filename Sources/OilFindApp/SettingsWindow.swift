@@ -2,13 +2,23 @@ import AppKit
 import SwiftUI
 import ServiceManagement
 import Carbon
+import UniformTypeIdentifiers
 import OilFindCore
 
+enum SettingsSection: String, CaseIterable {
+    case general, search, clipboard, index
+    var localizationKey: String { "settings." + rawValue }
+}
+
 final class SettingsModel: ObservableObject {
+    @Published var section: SettingsSection = .general {
+        didSet { if section != oldValue { cancelRecording() } }
+    }
     @Published private(set) var language: AppLanguage
     @Published var launchAtLogin: Bool
     let topics: AITopicManager
     let update: UpdateManager
+    let clipboard: ClipboardHistory
     private var languageObserver: NSObjectProtocol?
     private let languageDefaults: UserDefaults
     private var coverageExplanation: CoverageExplanation?
@@ -18,6 +28,9 @@ final class SettingsModel: ObservableObject {
     @Published var previewWithSpace: Bool
     @Published var excludedExtensionsText: String
     @Published var pinyinEnabled: Bool
+    @Published var calculatorEnabled: Bool
+    @Published var webSearchEnabled: Bool
+    @Published var webSearchEngine: WebSearchEngine
     @Published var excludedPaths: [String]
     @Published var keyCode: UInt32
     @Published var modifiers: UInt32
@@ -27,6 +40,7 @@ final class SettingsModel: ObservableObject {
     @Published var indexSystemDirs: Bool
     @Published var recording = false
     @Published var shortcutError: String?
+    @Published var actualShortcut: String?
     @Published var coverage = CoverageStats()
     @Published var explanation: String?
     @Published var expandedCoverage: Set<String> = []
@@ -44,17 +58,18 @@ final class SettingsModel: ObservableObject {
     var suspendHotKey: (() -> Void)?
     var registerHotKey: ((UInt32, UInt32) -> Bool)?
     var onContentChange: (() -> Void)?
+    var onRetryHotKey: (() -> Void)?
     private let snapshotStore: IndexStore?
     private var keyMonitor: Any?
     private var timer: Timer?
 
-    init(snapshotStore: IndexStore? = nil, snapshot: Bool = false, languageDefaults: UserDefaults = .standard, preferences: UserDefaults = .standard, topics: AITopicManager? = nil) {
-        self.topics = topics ?? AITopicManager(defaults: preferences)
+    init(snapshotStore: IndexStore? = nil, snapshot: Bool = false, languageDefaults: UserDefaults = .standard, preferences: UserDefaults = .standard, clipboard: ClipboardHistory? = nil) {
         self.snapshot = snapshot
         self.preferences = preferences
         self.languageDefaults = languageDefaults
         self.language = L10n.language
-        self.update = snapshot ? UpdateManager(snapshot: true) : .shared
+        self.update = snapshot ? UpdateManager(snapshot: true, supportsAppUpdates: true) : .shared
+        self.clipboard = clipboard ?? ClipboardHistory(snapshot: snapshot)
         launchAtLogin = snapshot ? false : SMAppService.mainApp.status == .enabled
         if !snapshot { SettingsPreferences.register() }
         let defaults = UserDefaults.standard
@@ -65,6 +80,9 @@ final class SettingsModel: ObservableObject {
         previewWithSpace = snapshot ? true : (preferences.object(forKey: "previewWithSpace") as? Bool ?? true)
         excludedExtensionsText = snapshot ? "" : (preferences.stringArray(forKey: "excludedExtensions") ?? []).joined(separator: " ")
         pinyinEnabled = snapshot ? true : defaults.bool(forKey: "pinyinEnabled")
+        calculatorEnabled = snapshot ? true : defaults.bool(forKey: "calculatorEnabled")
+        webSearchEnabled = snapshot ? true : defaults.bool(forKey: "webSearchEnabled")
+        webSearchEngine = snapshot ? .duckDuckGo : WebSearchEngine(rawValue: defaults.string(forKey: "webSearchEngine") ?? "") ?? .duckDuckGo
         excludedPaths = snapshot ? [] : ExcludedFolders.adding(defaults.stringArray(forKey: "userExcludedPaths") ?? [], to: [])
         keyCode = snapshot ? Shortcut.defaultKeyCode : UInt32(clamping: defaults.integer(forKey: "hotKeyCode"))
         modifiers = snapshot ? Shortcut.defaultModifiers : UInt32(clamping: defaults.integer(forKey: "hotKeyModifiers"))
@@ -79,10 +97,14 @@ final class SettingsModel: ObservableObject {
         }
         refresh()
     }
-    // Grouped Form owns scrolling; the content grows until the specified 600 pt cap.
-    var contentHeight: CGFloat {
-        min(600, 880 - (granted ? 30 : 0) + CGFloat(max(0, excludedPaths.count - 1)) * 32
-            + (loginError == nil ? 0 : 40) + (shortcutError == nil ? 0 : 28))
+    // Grouped Form keeps longer sections scrollable inside the fixed window.
+    var contentHeight: CGFloat { 680 }
+    func updateShortcutStatus(keyCode actualKeyCode: UInt32?, modifiers actualModifiers: UInt32?, clearErrorWhenBound: Bool = true) {
+        actualShortcut = actualKeyCode.flatMap { code in actualModifiers.map { Shortcut.symbols(keyCode: code, modifiers: $0) } }
+        guard !recording else { return }
+        if actualKeyCode == keyCode && actualModifiers == modifiers {
+            if clearErrorWhenBound { shortcutError = nil }
+        } else { shortcutError = L10n.text("settings.shortcutConflict") }
     }
     func startRefreshing() {
         refresh(); timer?.invalidate()
@@ -139,6 +161,7 @@ final class SettingsModel: ObservableObject {
         }
     }
     func setLogin(_ enabled: Bool) {
+        if snapshot { launchAtLogin = enabled; return }
         do {
             if enabled { try SMAppService.mainApp.register() }
             else { try SMAppService.mainApp.unregister() }
@@ -155,8 +178,37 @@ final class SettingsModel: ObservableObject {
         excludedExtensionsText = SettingsPreferences.setExcludedExtensions(excludedExtensionsText, in: preferences)
     }
     func setPinyin(_ enabled: Bool) {
-        pinyinEnabled = enabled; UserDefaults.standard.set(enabled, forKey: "pinyinEnabled")
+        pinyinEnabled = enabled
+        if !snapshot { UserDefaults.standard.set(enabled, forKey: "pinyinEnabled") }
         onPinyinChange?()
+    }
+    func setCalculator(_ enabled: Bool) {
+        calculatorEnabled = enabled
+        if !snapshot { UserDefaults.standard.set(enabled, forKey: "calculatorEnabled") }
+    }
+    func setWebSearch(_ enabled: Bool) {
+        webSearchEnabled = enabled
+        if !snapshot { UserDefaults.standard.set(enabled, forKey: "webSearchEnabled") }
+    }
+    func setWebSearchEngine(_ engine: WebSearchEngine) {
+        webSearchEngine = engine
+        if !snapshot { UserDefaults.standard.set(engine.rawValue, forKey: "webSearchEngine") }
+    }
+    func addExcludedApplications(in window: NSWindow?) {
+        guard let window else { return }
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.applicationBundle]
+        panel.canChooseDirectories = false; panel.canChooseFiles = true
+        panel.treatsFilePackagesAsDirectories = false; panel.allowsMultipleSelection = true
+        panel.directoryURL = URL(fileURLWithPath: "/Applications", isDirectory: true)
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard let self, response == .OK else { return }
+            let identifiers = panel.urls.compactMap { Bundle(url: $0)?.bundleIdentifier }
+            self.clipboard.setExcludedApplications(Array(Set(self.clipboard.excludedAppIDs).union(identifiers)).sorted())
+        }
+    }
+    func removeExcludedApplication(_ identifier: String) {
+        clipboard.setExcludedApplications(clipboard.excludedAppIDs.filter { $0 != identifier })
     }
     func setLanguage(_ value: AppLanguage) { L10n.setLanguage(value, in: languageDefaults) }
     func setScope(_ key: String, _ enabled: Bool) {
@@ -167,7 +219,7 @@ final class SettingsModel: ObservableObject {
         case "indexSystemDirs": indexSystemDirs = enabled
         default: preconditionFailure("Unknown scope key")
         }
-        UserDefaults.standard.set(enabled, forKey: key)
+        if !snapshot { UserDefaults.standard.set(enabled, forKey: key) }
         onConfigChange?(); refresh()
     }
     func addFolders(in window: NSWindow?) {
@@ -182,7 +234,8 @@ final class SettingsModel: ObservableObject {
     func removeFolder(_ path: String) { setExcluded(excludedPaths.filter { $0 != path }) }
     private func setExcluded(_ paths: [String]) {
         guard paths != excludedPaths else { return }
-        excludedPaths = paths; UserDefaults.standard.set(paths, forKey: "userExcludedPaths")
+        excludedPaths = paths
+        if !snapshot { UserDefaults.standard.set(paths, forKey: "userExcludedPaths") }
         onConfigChange?(); onContentChange?()
     }
     func rebuild() { manager?.rescan(); rebuilding = manager != nil }
@@ -204,7 +257,7 @@ final class SettingsModel: ObservableObject {
         shortcutError = registerHotKey?(keyCode, modifiers) == true ? nil : L10n.text("settings.shortcutConflict")
         endRecording()
     }
-    private func record(_ event: NSEvent) {
+    func record(_ event: NSEvent) {
         if event.keyCode == UInt16(kVK_Escape) { cancelRecording(); return }
         let reset = event.keyCode == UInt16(kVK_Delete) || event.keyCode == UInt16(kVK_ForwardDelete)
         let code = reset ? Shortcut.defaultKeyCode : UInt32(event.keyCode)
@@ -212,15 +265,18 @@ final class SettingsModel: ObservableObject {
         guard mask & UInt32(cmdKey | controlKey | optionKey) != 0 else {
             shortcutError = L10n.text("settings.shortcutModifier"); onContentChange?(); return
         }
-        if registerHotKey?(code, mask) == true {
+        let registered = registerHotKey?(code, mask) == true
+        if reset || registered {
             keyCode = code; modifiers = mask
-            UserDefaults.standard.set(Int(code), forKey: "hotKeyCode")
-            UserDefaults.standard.set(Int(mask), forKey: "hotKeyModifiers")
-            shortcutError = nil
-        } else {
-            _ = registerHotKey?(keyCode, modifiers)
-            shortcutError = L10n.text("settings.shortcutConflict")
+            if !snapshot {
+                UserDefaults.standard.set(Int(code), forKey: "hotKeyCode")
+                UserDefaults.standard.set(Int(mask), forKey: "hotKeyModifiers")
+            }
         }
+        if !reset && !registered {
+            _ = registerHotKey?(keyCode, modifiers)
+        }
+        shortcutError = registered ? nil : L10n.text("settings.shortcutConflict")
         endRecording()
     }
     deinit {
@@ -234,14 +290,20 @@ private struct UpdateSettingsRow: View {
     @ObservedObject var update: UpdateManager
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 5) {
-                    Toggle(L10n.text("update.auto"), isOn: $update.automatic)
-                    Text(L10n.text("update.autoHint")).font(.footnote).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+            if update.supportsAppUpdates {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Toggle(L10n.text("update.auto"), isOn: $update.automatic)
+                        Text(L10n.text("update.autoHint")).font(.footnote).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer()
+                    Button(L10n.text("update.check")) { update.check() }.disabled(!update.canCheck)
                 }
-                Spacer()
-                Button(L10n.text("update.check")) { update.check() }.disabled(!update.canCheck)
+            } else {
+                Text(L10n.text("update.forkHint")).font(.footnote).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Link(L10n.text("update.forkRepository"), destination: URL(string: "https://github.com/Sigurd-git/oil-Spotlight")!)
             }
             Text(UpdateManager.current.version.text).font(.footnote).foregroundStyle(.secondary)
         }
@@ -280,112 +342,172 @@ private struct SettingsForm: View {
     var externalDrives: ExternalDriveCatalog
     var window: () -> NSWindow?
     var body: some View {
-        Form {
-            Section(L10n.text("settings.general")) {
-                HStack {
-                    Text(L10n.text("settings.language")); Spacer()
-                    LanguagePicker(model: model).frame(width: 140, height: 24)
-                }
-                UpdateSettingsRow(update: model.update).id(model.language)
-                VStack(alignment: .leading, spacing: 5) {
-                    Toggle(L10n.text("settings.login"), isOn: Binding(get: { model.launchAtLogin }, set: model.setLogin))
-                    if let error = model.loginError { hint(error).foregroundStyle(.red) }
-                }
-                VStack(alignment: .leading, spacing: 5) {
-                    HStack {
-                        Text(L10n.text("settings.shortcut")); Spacer()
-                        ShortcutRecorder(model: model).frame(width: 120, height: 24)
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                ForEach(SettingsSection.allCases, id: \.self) { section in
+                    Button { model.section = section } label: {
+                        Text(L10n.text(section.localizationKey))
+                            .font(.system(size: 13, weight: model.section == section ? .semibold : .regular))
+                            .foregroundStyle(Color(nsColor: .labelColor))
+                            .frame(maxWidth: .infinity, minHeight: 28)
+                            .background(model.section == section
+                                ? Color(nsColor: .controlAccentColor).opacity(0.14)
+                                : Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
+                            .overlay(RoundedRectangle(cornerRadius: 6).stroke(
+                                model.section == section ? Color(nsColor: .controlAccentColor).opacity(0.65)
+                                    : Color(nsColor: .separatorColor), lineWidth: 1))
+                            .contentShape(RoundedRectangle(cornerRadius: 6))
                     }
-                    if let error = model.shortcutError { hint(error).foregroundStyle(.red) }
-                }
-                VStack(alignment: .leading, spacing: 5) {
-                    Toggle(L10n.text("settings.pinyin"), isOn: Binding(get: { model.pinyinEnabled }, set: model.setPinyin))
-                    hint(L10n.text("settings.pinyinHint"))
-                }
-                VStack(alignment: .leading, spacing: 5) {
-                    Toggle(L10n.text("settings.previewSpace"), isOn: Binding(get: { model.previewWithSpace }, set: model.setPreviewWithSpace))
-                    hint(L10n.text("settings.previewSpaceHint"))
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("settings.navigation." + section.rawValue)
+                    .accessibilityAddTraits(model.section == section ? .isSelected : [])
                 }
             }
-            Section(L10n.text("settings.index")) {
-                VStack(alignment: .leading, spacing: 5) {
-                    HStack {
-                        Text(L10n.text("settings.indexed")); Spacer()
-                        Text(L10n.text("settings.items", Presentation.countText(model.indexedCount)))
-                    }
-                    if let date = model.scanDate {
-                        hint(L10n.text("settings.scanDate", Presentation.dateText(date, now: Date(), calendar: .current, chinese: L10n.chinese)))
-                    }
+            .padding(20)
+            .accessibilityIdentifier("settings.navigation")
+            Form {
+                switch model.section {
+                case .general: generalSections
+                case .search: searchSections
+                case .clipboard: ClipboardSettingsSections(model: model, clipboard: model.clipboard, window: window)
+                case .index: indexSections
                 }
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(L10n.text("coverage.title")).font(.subheadline).foregroundStyle(.secondary)
-                    coverageRow("noAccess", bucket: model.coverage[.noAccess])
-                    if model.coverage.scopeCount > 0 {
-                        DisclosureGroup(isExpanded: coverageBinding("scope")) {
-                            VStack(alignment: .leading, spacing: 10) {
-                                ForEach(CoverageReason.allCases.filter { $0.scopeKey != nil && model.coverage[$0].count > 0 }, id: \.self) { reason in
-                                    VStack(alignment: .leading, spacing: 3) {
-                                        Text(L10n.text("settings.scope." + reason.scopeKey!) + " · " + String(model.coverage[reason].count))
-                                            .font(.footnote).foregroundStyle(.secondary)
-                                        examples(model.coverage[reason])
-                                    }
+            }
+            .formStyle(.grouped).toggleStyle(.switch)
+        }
+        .frame(width: 540, height: model.contentHeight)
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+    private var generalSections: some View {
+        Section(L10n.text("settings.general")) {
+            HStack {
+                Text(L10n.text("settings.language")); Spacer()
+                LanguagePicker(model: model).frame(width: 140, height: 24)
+            }
+            UpdateSettingsRow(update: model.update).id(model.language)
+            VStack(alignment: .leading, spacing: 5) {
+                Toggle(L10n.text("settings.login"), isOn: Binding(get: { model.launchAtLogin }, set: model.setLogin))
+                if let error = model.loginError { hint(error).foregroundStyle(.red) }
+            }
+            VStack(alignment: .leading, spacing: 5) {
+                HStack {
+                    Text(L10n.text("settings.shortcut")); Spacer()
+                    ShortcutRecorder(model: model).frame(width: 120, height: 24)
+                }
+                hint(L10n.text("settings.shortcutDesired", Shortcut.symbols(keyCode: model.keyCode, modifiers: model.modifiers)))
+                hint(L10n.text("settings.shortcutCurrent", model.actualShortcut ?? L10n.text("settings.shortcutInactive")))
+                if let error = model.shortcutError { hint(error).foregroundStyle(.red) }
+                HStack {
+                    Button(L10n.text("settings.spotlightShortcuts")) { _ = SystemSettingsCatalog.openSpotlightShortcuts() }
+                        .help(L10n.text("settings.spotlightBreadcrumb"))
+                    Spacer()
+                    Button(L10n.text("settings.retryHotKey")) { model.onRetryHotKey?() }
+                        .disabled(model.onRetryHotKey == nil || model.recording)
+                }
+                hint(L10n.text("settings.spotlightBreadcrumb"))
+            }
+        }
+    }
+    private var searchSections: some View {
+        Section(L10n.text("settings.search")) {
+            VStack(alignment: .leading, spacing: 5) {
+                Toggle(L10n.text("settings.previewSpace"), isOn: Binding(get: { model.previewWithSpace }, set: model.setPreviewWithSpace))
+                hint(L10n.text("settings.previewSpaceHint"))
+            }
+            VStack(alignment: .leading, spacing: 5) {
+                Toggle(L10n.text("settings.pinyin"), isOn: Binding(get: { model.pinyinEnabled }, set: model.setPinyin))
+                hint(L10n.text("settings.pinyinHint"))
+            }
+            VStack(alignment: .leading, spacing: 5) {
+                Toggle(L10n.text("settings.calculator"), isOn: Binding(get: { model.calculatorEnabled }, set: model.setCalculator))
+                hint(L10n.text("settings.calculatorHint"))
+            }
+            VStack(alignment: .leading, spacing: 5) {
+                Toggle(L10n.text("settings.webSearch"), isOn: Binding(get: { model.webSearchEnabled }, set: model.setWebSearch))
+                hint(L10n.text("settings.webSearchHint"))
+            }
+            Picker(L10n.text("settings.webSearchEngine"), selection: Binding(get: { model.webSearchEngine }, set: model.setWebSearchEngine)) {
+                ForEach(WebSearchEngine.allCases, id: \.self) { engine in
+                    Text(L10n.text("settings.webSearchEngine." + engine.rawValue)).tag(engine)
+                }
+            }
+            .disabled(!model.webSearchEnabled)
+        }
+    }
+    @ViewBuilder private var indexSections: some View {
+        Section(L10n.text("settings.index")) {
+            VStack(alignment: .leading, spacing: 5) {
+                HStack {
+                    Text(L10n.text("settings.indexed")); Spacer()
+                    Text(L10n.text("settings.items", Presentation.countText(model.indexedCount)))
+                }
+                if let date = model.scanDate {
+                    hint(L10n.text("settings.scanDate", Presentation.dateText(date, now: Date(), calendar: .current, chinese: L10n.chinese)))
+                }
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                Text(L10n.text("coverage.title")).font(.subheadline).foregroundStyle(.secondary)
+                coverageRow("noAccess", bucket: model.coverage[.noAccess])
+                if model.coverage.scopeCount > 0 {
+                    DisclosureGroup(isExpanded: coverageBinding("scope")) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            ForEach(CoverageReason.allCases.filter { $0.scopeKey != nil && model.coverage[$0].count > 0 }, id: \.self) { reason in
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(L10n.text("settings.scope." + reason.scopeKey!) + " · " + String(model.coverage[reason].count))
+                                        .font(.footnote).foregroundStyle(.secondary)
+                                    examples(model.coverage[reason])
                                 }
                             }
-                            .padding(.top, 4).padding(.leading, 12).frame(maxWidth: .infinity, alignment: .leading)
-                        } label: { Text(L10n.text("coverage.scope", String(model.coverage.scopeCount))).fixedSize(horizontal: false, vertical: true) }
-                    }
-                    coverageRow("userExcluded", bucket: model.coverage[.userExcluded])
-                    coverageRow("fileType", bucket: model.coverage[.fileType])
-                    coverageRow("cloud", bucket: model.coverage[.cloud])
-                    coverageRow("volumes", bucket: model.coverage[.volumes])
-                    Button(L10n.text("coverage.check")) { model.checkFile(in: window()) }
-                    if let explanation = model.explanation { hint(explanation) }
+                        }
+                        .padding(.top, 4).padding(.leading, 12).frame(maxWidth: .infinity, alignment: .leading)
+                    } label: { Text(L10n.text("coverage.scope", String(model.coverage.scopeCount))).fixedSize(horizontal: false, vertical: true) }
                 }
-                VStack(alignment: .leading, spacing: 7) {
-                    HStack {
-                        Text(L10n.text("settings.permission")); Spacer()
-                        Circle().fill(Color(nsColor: model.granted ? .systemGreen : .systemOrange)).frame(width: 8, height: 8)
-                        Text(L10n.text(model.granted ? "settings.granted" : "settings.notGranted"))
-                    }
-                    if !model.granted { Button(L10n.text("settings.openPermissions"), action: Permissions.openSettings) }
+                coverageRow("userExcluded", bucket: model.coverage[.userExcluded])
+                coverageRow("fileType", bucket: model.coverage[.fileType])
+                coverageRow("cloud", bucket: model.coverage[.cloud])
+                coverageRow("volumes", bucket: model.coverage[.volumes])
+                Button(L10n.text("coverage.check")) { model.checkFile(in: window()) }
+                if let explanation = model.explanation { hint(explanation) }
+            }
+            VStack(alignment: .leading, spacing: 7) {
+                HStack {
+                    Text(L10n.text("settings.permission")); Spacer()
+                    Circle().fill(Color(nsColor: model.granted ? .systemGreen : .systemOrange)).frame(width: 8, height: 8)
+                    Text(L10n.text(model.granted ? "settings.granted" : "settings.notGranted"))
                 }
-                Button(L10n.text(model.rebuilding ? "settings.rebuilding" : "settings.rebuild"), action: model.rebuild)
-                    .disabled(model.rebuilding || model.manager == nil)
+                if !model.granted { Button(L10n.text("settings.openPermissions"), action: Permissions.openSettings) }
             }
-            Section {
-                scopeRow("dependency", key: "indexDependencyDirs", enabled: model.indexDependencyDirs)
-                scopeRow("packages", key: "indexPackageContents", enabled: model.indexPackageContents)
-                scopeRow("library", key: "indexUserLibrary", enabled: model.indexUserLibrary)
-                scopeRow("system", key: "indexSystemDirs", enabled: model.indexSystemDirs)
-            } header: { Text(L10n.text("settings.scope")) }
-              footer: { hint(L10n.text("settings.scopeHint")) }
-            Section(L10n.text("drivesTitle")) {
-                ExternalDriveSettings(catalog: externalDrives, chinese: L10n.chinese, window: window)
-            }
-            Section(L10n.text("topicsTitle")) {
-                AITopicSettings(manager: model.topics)
-            }
-            if let appExtension { appExtension.settingsSection(window: window) }
-            Section {
-                if model.excludedPaths.isEmpty { Text(L10n.text("settings.noExcluded")).foregroundStyle(.secondary) }
-                ForEach(model.excludedPaths, id: \.self) { path in
-                    HStack {
-                        Text(Presentation.abbreviate(path: path, home: NSHomeDirectory())).lineLimit(1).truncationMode(.middle)
-                        Spacer()
-                        Button { model.removeFolder(path) } label: { Image(systemName: "minus.circle.fill") }
-                            .buttonStyle(.plain).foregroundStyle(Color(nsColor: .tertiaryLabelColor))
-                    }
-                }
-                Button(L10n.text("settings.addFolder")) { model.addFolders(in: window()) }
-            } header: { Text(L10n.text("settings.excluded")) }
-              footer: { hint(L10n.text("settings.excludedHint")) }
-            Section {
-                ExcludedExtensionsInput(model: model).frame(height: 24)
-            } header: { Text(L10n.text("settings.excludedTypes")) }
-              footer: { hint(L10n.text("settings.excludedTypesHint")) }
+            Button(L10n.text(model.rebuilding ? "settings.rebuilding" : "settings.rebuild"), action: model.rebuild)
+                .disabled(model.rebuilding || model.manager == nil)
         }
-        .formStyle(.grouped).toggleStyle(.switch)
-        .frame(width: 540, height: model.contentHeight)
+        Section {
+            scopeRow("dependency", key: "indexDependencyDirs", enabled: model.indexDependencyDirs)
+            scopeRow("packages", key: "indexPackageContents", enabled: model.indexPackageContents)
+            scopeRow("library", key: "indexUserLibrary", enabled: model.indexUserLibrary)
+            scopeRow("system", key: "indexSystemDirs", enabled: model.indexSystemDirs)
+        } header: { Text(L10n.text("settings.scope")) }
+          footer: { hint(L10n.text("settings.scopeHint")) }
+        Section(L10n.text("drivesTitle")) {
+            ExternalDriveSettings(catalog: externalDrives, chinese: L10n.chinese, window: window)
+        }
+        if let appExtension { appExtension.settingsSection(window: window) }
+        Section {
+            if model.excludedPaths.isEmpty { Text(L10n.text("settings.noExcluded")).foregroundStyle(.secondary) }
+            ForEach(model.excludedPaths, id: \.self) { path in
+                HStack {
+                    Text(Presentation.abbreviate(path: path, home: NSHomeDirectory())).lineLimit(1).truncationMode(.middle)
+                    Spacer()
+                    Button { model.removeFolder(path) } label: { Image(systemName: "minus.circle.fill") }
+                        .buttonStyle(.plain).foregroundStyle(Color(nsColor: .tertiaryLabelColor))
+                }
+            }
+            Button(L10n.text("settings.addFolder")) { model.addFolders(in: window()) }
+        } header: { Text(L10n.text("settings.excluded")) }
+          footer: { hint(L10n.text("settings.excludedHint")) }
+        Section {
+            ExcludedExtensionsInput(model: model).frame(height: 24)
+        } header: { Text(L10n.text("settings.excludedTypes")) }
+          footer: { hint(L10n.text("settings.excludedTypesHint")) }
     }
     private func coverageBinding(_ key: String) -> Binding<Bool> {
         Binding(get: { model.expandedCoverage.contains(key) }, set: { if $0 { model.expandedCoverage.insert(key) } else { model.expandedCoverage.remove(key) } })
@@ -413,6 +535,97 @@ private struct SettingsForm: View {
         }
     }
     private func hint(_ text: String) -> some View { Text(text).font(.footnote).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
+}
+
+// Keep the property wrapper unambiguous with SDKs that also export a State macro.
+private typealias StateProperty<Value> = SwiftUI.State<Value>
+
+private struct ClipboardSettingsSections: View {
+    @ObservedObject var model: SettingsModel
+    @ObservedObject var clipboard: ClipboardHistory
+    var window: () -> NSWindow?
+    @StateProperty private var confirmingClear = false
+
+    @ViewBuilder var body: some View {
+        Section(L10n.text("settings.clipboard")) {
+            Toggle(L10n.text("settings.clipboardEnabled"), isOn: Binding(get: { clipboard.enabled }, set: clipboard.setEnabled))
+            Text(L10n.text("settings.clipboardHint")).font(.footnote).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(L10n.text("settings.clipboardAccessibilityHint")).font(.footnote).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button(L10n.text("settings.clipboardOpenAccessibility")) {
+                let title = L10n.text("settings.clipboardOpenAccessibility")
+                let setting = SystemSetting(id: "clipboardPasteAccessibility", englishName: title, chineseName: title,
+                    symbol: "hand.raised", url: URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!,
+                    fallbackURL: SystemSettingsCatalog.entries.first(where: { $0.id == "privacysecurity" })?.url)
+                _ = SystemSettingsCatalog.open(setting)
+            }
+            Toggle(L10n.text("settings.clipboardPaused"), isOn: Binding(get: { clipboard.paused }, set: clipboard.setPaused))
+                .disabled(!clipboard.enabled)
+            HStack {
+                Stepper(value: Binding(get: { clipboard.retentionDays }, set: { clipboard.setRetention(days: $0, items: clipboard.maxItems) }), in: 1...365) {
+                    Text(L10n.text("settings.clipboardRetentionDays", String(clipboard.retentionDays)))
+                }
+                TextField(L10n.text("settings.clipboardRetentionDays", String(clipboard.retentionDays)), value: Binding(
+                    get: { clipboard.retentionDays }, set: { clipboard.setRetention(days: min(365, max(1, $0)), items: clipboard.maxItems) }), format: .number)
+                    .labelsHidden().textFieldStyle(.roundedBorder).frame(width: 70)
+            }
+            HStack {
+                Stepper(value: Binding(get: { clipboard.maxItems }, set: { clipboard.setRetention(days: clipboard.retentionDays, items: $0) }), in: 1...10_000) {
+                    Text(L10n.text("settings.clipboardMaxItems", String(clipboard.maxItems)))
+                }
+                TextField(L10n.text("settings.clipboardMaxItems", String(clipboard.maxItems)), value: Binding(
+                    get: { clipboard.maxItems }, set: { clipboard.setRetention(days: clipboard.retentionDays, items: min(10_000, max(1, $0))) }), format: .number)
+                    .labelsHidden().textFieldStyle(.roundedBorder).frame(width: 70)
+            }
+            Text(L10n.text("settings.clipboardSavedItems", String(clipboard.entries.count)))
+                .foregroundStyle(.secondary)
+            if clipboard.needsAccess {
+                Text(L10n.text("settings.clipboardNeedsAccess")).font(.footnote)
+                    .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Text(L10n.text("settings.clipboardPermissionBreadcrumb")).font(.footnote)
+                    .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Button(L10n.text("settings.openPermissions")) {
+                    if let setting = SystemSettingsCatalog.entries.first(where: { $0.id == "privacysecurity" }) {
+                        _ = SystemSettingsCatalog.open(setting)
+                    }
+                }
+                .help(L10n.text("settings.clipboardPermissionBreadcrumb"))
+            }
+            if let error = clipboard.error {
+                Text(L10n.text("settings.clipboardError", error)).font(.footnote)
+                    .foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
+                Button(L10n.text("clipboard.authorizeStorage")) { clipboard.requestPersistenceAccess() }
+                    .disabled(clipboard.requestingPersistenceAccess)
+            }
+        }
+        Section {
+            if clipboard.excludedAppIDs.isEmpty {
+                Text(L10n.text("settings.clipboardNoExcluded")).foregroundStyle(.secondary)
+            }
+            ForEach(clipboard.excludedAppIDs.sorted(), id: \.self) { identifier in
+                HStack {
+                    Text(identifier).lineLimit(1).truncationMode(.middle).help(identifier)
+                    Spacer()
+                    Button { model.removeExcludedApplication(identifier) } label: {
+                        Image(systemName: "minus.circle.fill")
+                    }
+                    .buttonStyle(.plain).foregroundStyle(Color(nsColor: .tertiaryLabelColor))
+                    .accessibilityLabel(L10n.text("settings.clipboardRemoveExcluded", identifier))
+                }
+            }
+            Button(L10n.text("settings.clipboardAddExcluded")) { model.addExcludedApplications(in: window()) }
+        } header: { Text(L10n.text("settings.clipboardExcluded")) }
+          footer: { Text(L10n.text("settings.clipboardExcludedHint")).font(.footnote).foregroundStyle(.secondary) }
+        Section {
+            Button(L10n.text("settings.clipboardClear"), role: .destructive) { confirmingClear = true }
+                .disabled(clipboard.entries.isEmpty)
+                .confirmationDialog(L10n.text("settings.clipboardClearTitle"), isPresented: $confirmingClear, titleVisibility: .visible) {
+                    Button(L10n.text("settings.clipboardClear"), role: .destructive) { clipboard.clear() }
+                    Button(L10n.text("settings.cancel"), role: .cancel) {}
+                } message: { Text(L10n.text("settings.clipboardClearMessage")) }
+        }
+    }
 }
 
 private struct ShortcutRecorder: NSViewRepresentable {
@@ -515,5 +728,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     }
     func windowWillClose(_ notification: Notification) { model.stopRefreshing() }
     func windowDidResignKey(_ notification: Notification) { model.cancelRecording() }
-    func windowDidBecomeKey(_ notification: Notification) { model.refresh() }
+    func windowDidBecomeKey(_ notification: Notification) {
+        model.refresh()
+        if !model.recording { model.onRetryHotKey?() }
+    }
 }
