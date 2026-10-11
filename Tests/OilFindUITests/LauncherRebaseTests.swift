@@ -199,27 +199,51 @@ final class LauncherRebaseTests: XCTestCase {
         let base = SearchPresentation(try XCTUnwrap(Searcher.search(.parse("report"), in: index)))
         let provider = Provider(), controller = SearchViewController(snapshot: true)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 560), styleMask: .borderless, backing: .buffered, defer: false)
+        let initialPublished = expectation(description: "Initial supplementary results applied")
+        let refreshPublished = expectation(description: "Refreshed supplementary results applied")
+        var initialComplete = false, refreshComplete = false, checkingRefresh = false
+        var observedSelections: [UInt32?] = []
         window.isReleasedWhenClosed = false; window.contentViewController = controller
-        defer { provider.gate.signal(); window.close() }
+        defer { checkingRefresh = false; provider.gate.signal(); window.close() }
         window.orderFront(nil)
         let combined = base.supplement([.init(sourceID: "startup", entryID: 3, detail: "Synthetic match")], options: .init())
         try controller.prepareLauncherSnapshot(SearchSnapshot(raw: "report", scope: .files, filePresentation: combined))
         controller.additionalSources = { [.init(id: "startup", displayName: "", isOnline: true, store: index)] }
         controller.supplementaryProvider = provider
-        // Start a new user query, then navigate to the additional match.
+        let applySnapshot = controller.results.onSnapshotApplied
+        controller.results.onSnapshotApplied = { found in
+            applySnapshot?(found)
+            guard !found.filesPending, found.filePresentation?.hasSupplements == true else { return }
+            if !initialComplete {
+                initialComplete = true; initialPublished.fulfill()
+            } else if checkingRefresh && !refreshComplete {
+                refreshComplete = true; refreshPublished.fulfill()
+            }
+        }
+        let selectionChanged = controller.results.onSelection
+        controller.results.onSelection = {
+            selectionChanged?()
+            if checkingRefresh { observedSelections.append(controller.results.selectedID) }
+        }
+        defer {
+            controller.results.onSnapshotApplied = applySnapshot
+            controller.results.onSelection = selectionChanged
+        }
+        // Navigate only after the initial query, then observe every refresh selection.
         controller.startSearch()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        wait(for: [initialPublished], timeout: 3)
         let down = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
                                                 windowNumber: window.windowNumber, context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: 125))
         XCTAssertTrue(controller.handleKey(down))
         XCTAssertEqual(controller.results.selectedID, 3)
-        provider.blocked = true
+        checkingRefresh = true; provider.blocked = true
         controller.indexChanged()
         wait(for: [provider.started], timeout: 3)
-        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
         XCTAssertEqual(controller.results.selectedID, 3)
         provider.gate.signal()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        wait(for: [refreshPublished], timeout: 3)
+        XCTAssertFalse(observedSelections.isEmpty)
+        XCTAssertTrue(observedSelections.allSatisfy { $0 == 3 })
         XCTAssertEqual(controller.results.selectedID, 3)
     }
 
