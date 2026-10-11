@@ -14,6 +14,8 @@ public struct ApplicationMenuItem {
 
 /// Optional application integration, outside the search and indexing hot paths.
 public protocol ApplicationExtension: AnyObject {
+    /// An extension may finish a dedicated invocation before the app is initialized.
+    func handleLaunch(arguments: [String]) -> Int32?
     #if DEBUG
     func prepareArguments(_ arguments: inout [String]) throws
     #endif
@@ -30,6 +32,7 @@ public protocol ApplicationExtension: AnyObject {
 }
 
 public extension ApplicationExtension {
+    func handleLaunch(arguments: [String]) -> Int32? { nil }
     var settingsMenuItem: ApplicationMenuItem? { nil }
     var onSettingsMenuItemChange: (() -> Void)? { get { nil } set { } }
     var supplementarySearchProvider: SupplementarySearchProvider? { nil }

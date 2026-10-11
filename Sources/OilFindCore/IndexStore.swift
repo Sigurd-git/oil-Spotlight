@@ -7,6 +7,7 @@ public final class IndexStore {
     public internal(set) var count: Int, namesLen: Int, altCount: Int, altLen: Int
     public internal(set) var capacity: Int, namesCapacity: Int, altCapacity: Int, altNamesCapacity: Int
     public internal(set) var configFingerprint: UInt64
+    internal var scopeFingerprint: UInt64 = 0
     public var homeIndex: UInt32, deletedCount: UInt32 = 0, liveCount: Int
     public var version: UInt64 = 0, lastEventId: UInt64 = 0, scanFinishedAt: UInt64
     public var coverage = CoverageStats()

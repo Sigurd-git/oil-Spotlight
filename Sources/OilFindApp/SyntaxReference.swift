@@ -22,12 +22,14 @@ final class SyntaxReference: FlippedView {
         ["dm:today ext:md", "Markdown files changed today", "Date"]
     ]
     var onExample: ((String) -> Void)?
+    private let previewKeys = Theme.label(11.5, .regular, .secondaryLabelColor)
     private let title = Theme.label(14, .semibold, .labelColor)
     private var buttons: [NSButton] = [], examples: [NSTextField] = [], descriptions: [NSTextField] = [], groups: [NSTextField] = []
     private var rows: [[String]] { L10n.chinese ? Self.zh : Self.en }
     override init(frame: NSRect) {
         super.init(frame: frame); wantsLayer = true
         title.stringValue = L10n.text("hint.syntax"); addSubview(title)
+        addSubview(previewKeys); previewKeys.stringValue = L10n.text("syntax.previewKeys") + "  " + L10n.text("hint.preview")
         for (i, row) in rows.enumerated() {
             let button = SyntaxRow(title: row[0], target: self, action: #selector(choose(_:)))
             button.tag = i; button.isBordered = false; button.alignment = .left
@@ -44,6 +46,7 @@ final class SyntaxReference: FlippedView {
     @objc private func choose(_ sender: NSButton) { onExample?(rows[sender.tag][0]) }
     func localize() {
         title.stringValue = L10n.text("hint.syntax")
+        previewKeys.stringValue = L10n.text("syntax.previewKeys") + "  " + L10n.text("hint.preview")
         for (i, row) in rows.enumerated() {
             buttons[i].title = row[0]; examples[i].stringValue = row[0]
             descriptions[i].stringValue = row[1]; groups[i].stringValue = row[2]
@@ -52,6 +55,7 @@ final class SyntaxReference: FlippedView {
     }
     override func layout() {
         super.layout(); title.frame = NSRect(x: 28, y: 24, width: bounds.width - 56, height: 20)
+        previewKeys.frame = NSRect(x: 28, y: 403, width: bounds.width - 56, height: 18)
         for i in buttons.indices {
             let y = CGFloat(64 + i * 67)
             buttons[i].frame = NSRect(x: 18, y: y - 4, width: bounds.width - 36, height: 63)

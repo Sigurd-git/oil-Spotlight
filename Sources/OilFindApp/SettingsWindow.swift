@@ -12,7 +12,10 @@ final class SettingsModel: ObservableObject {
     private let languageDefaults: UserDefaults
     private var coverageExplanation: CoverageExplanation?
     private let snapshot: Bool
+    private let preferences: UserDefaults
     @Published var loginError: String?
+    @Published var previewWithSpace: Bool
+    @Published var excludedExtensionsText: String
     @Published var pinyinEnabled: Bool
     @Published var excludedPaths: [String]
     @Published var keyCode: UInt32
@@ -42,8 +45,9 @@ final class SettingsModel: ObservableObject {
     private var keyMonitor: Any?
     private var timer: Timer?
 
-    init(snapshotStore: IndexStore? = nil, snapshot: Bool = false, languageDefaults: UserDefaults = .standard) {
+    init(snapshotStore: IndexStore? = nil, snapshot: Bool = false, languageDefaults: UserDefaults = .standard, preferences: UserDefaults = .standard) {
         self.snapshot = snapshot
+        self.preferences = preferences
         self.languageDefaults = languageDefaults
         self.language = L10n.language
         self.update = snapshot ? UpdateManager(snapshot: true) : .shared
@@ -54,6 +58,8 @@ final class SettingsModel: ObservableObject {
         indexPackageContents = !snapshot && defaults.bool(forKey: "indexPackageContents")
         indexUserLibrary = !snapshot && defaults.bool(forKey: "indexUserLibrary")
         indexSystemDirs = !snapshot && defaults.bool(forKey: "indexSystemDirs")
+        previewWithSpace = snapshot ? true : (preferences.object(forKey: "previewWithSpace") as? Bool ?? true)
+        excludedExtensionsText = snapshot ? "" : (preferences.stringArray(forKey: "excludedExtensions") ?? []).joined(separator: " ")
         pinyinEnabled = snapshot ? true : defaults.bool(forKey: "pinyinEnabled")
         excludedPaths = snapshot ? [] : ExcludedFolders.adding(defaults.stringArray(forKey: "userExcludedPaths") ?? [], to: [])
         keyCode = snapshot ? Shortcut.defaultKeyCode : UInt32(clamping: defaults.integer(forKey: "hotKeyCode"))
@@ -90,6 +96,11 @@ final class SettingsModel: ObservableObject {
             indexedCount = values.0
             scanDate = values.1 == 0 ? nil : Date(timeIntervalSince1970: TimeInterval(values.1))
         } else { indexedCount = 0; scanDate = nil }
+        for source in additionalSources?() ?? [] {
+            var excludedTypes = CoverageStats()
+            excludedTypes.buckets[.fileType] = source.store.read { source.store.coverage[.fileType] }
+            stats.merge(excludedTypes)
+        }
         if !snapshot { stats.refreshVolumes(excluding: Set((additionalSources?() ?? []).filter(\.isOnline).map { $0.store.rootPath })) }
         if coverage != stats { coverage = stats }
         if wasGranted != granted { onContentChange?() }
@@ -123,6 +134,13 @@ final class SettingsModel: ObservableObject {
         } catch { loginError = error.localizedDescription }
         launchAtLogin = SMAppService.mainApp.status == .enabled
         onContentChange?()
+    }
+    func setPreviewWithSpace(_ enabled: Bool) {
+        previewWithSpace = enabled
+        preferences.set(enabled, forKey: "previewWithSpace")
+    }
+    func commitExcludedExtensions() {
+        excludedExtensionsText = SettingsPreferences.setExcludedExtensions(excludedExtensionsText, in: preferences)
     }
     func setPinyin(_ enabled: Bool) {
         pinyinEnabled = enabled; UserDefaults.standard.set(enabled, forKey: "pinyinEnabled")
@@ -271,6 +289,10 @@ private struct SettingsForm: View {
                     Toggle(L10n.text("settings.pinyin"), isOn: Binding(get: { model.pinyinEnabled }, set: model.setPinyin))
                     hint(L10n.text("settings.pinyinHint"))
                 }
+                VStack(alignment: .leading, spacing: 5) {
+                    Toggle(L10n.text("settings.previewSpace"), isOn: Binding(get: { model.previewWithSpace }, set: model.setPreviewWithSpace))
+                    hint(L10n.text("settings.previewSpaceHint"))
+                }
             }
             Section(L10n.text("settings.index")) {
                 VStack(alignment: .leading, spacing: 5) {
@@ -300,6 +322,7 @@ private struct SettingsForm: View {
                         } label: { Text(L10n.text("coverage.scope", String(model.coverage.scopeCount))).fixedSize(horizontal: false, vertical: true) }
                     }
                     coverageRow("userExcluded", bucket: model.coverage[.userExcluded])
+                    coverageRow("fileType", bucket: model.coverage[.fileType])
                     coverageRow("cloud", bucket: model.coverage[.cloud])
                     coverageRow("volumes", bucket: model.coverage[.volumes])
                     Button(L10n.text("coverage.check")) { model.checkFile(in: window()) }
@@ -337,6 +360,10 @@ private struct SettingsForm: View {
                 Button(L10n.text("settings.addFolder")) { model.addFolders(in: window()) }
             } header: { Text(L10n.text("settings.excluded")) }
               footer: { hint(L10n.text("settings.excludedHint")) }
+            Section {
+                ExcludedExtensionsInput(model: model).frame(height: 24)
+            } header: { Text(L10n.text("settings.excludedTypes")) }
+              footer: { hint(L10n.text("settings.excludedTypesHint")) }
         }
         .formStyle(.grouped).toggleStyle(.switch)
         .frame(width: 540, height: model.contentHeight)
@@ -418,7 +445,13 @@ final class SettingsWindow: NSWindow {
     weak var settingsModel: SettingsModel?
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         // The accessory app has no Edit menu to dispatch field-editor commands.
-        if event.modifierFlags.intersection([.command, .control, .option, .shift]) == .command,
+        let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
+        if event.charactersIgnoringModifiers?.lowercased() == "z", modifiers == .command || modifiers == [.command, .shift],
+           let editor = firstResponder as? NSTextView, editor.isFieldEditor, !editor.hasMarkedText() {
+            if modifiers.contains(.shift) { editor.undoManager?.redo() } else { editor.undoManager?.undo() }
+            return true
+        }
+        if modifiers == .command,
            let editor = firstResponder as? NSTextView, editor.isFieldEditor, !editor.hasMarkedText() {
             switch event.charactersIgnoringModifiers?.lowercased() {
             case "a": editor.selectAll(nil); return true
@@ -454,6 +487,9 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     private func resizeToContent() {
         window?.title = L10n.text("settings.title")
         window?.setContentSize(NSSize(width: 540, height: model.contentHeight))
+    }
+    func windowWillReturnFieldEditor(_ sender: NSWindow, to client: Any?) -> Any? {
+        (client as? ExcludedExtensionsField)?.editor
     }
     func windowWillClose(_ notification: Notification) { model.stopRefreshing() }
     func windowDidResignKey(_ notification: Notification) { model.cancelRecording() }

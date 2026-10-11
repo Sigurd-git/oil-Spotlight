@@ -9,6 +9,22 @@ export const changelogTitle = { zh: '更新日志', en: 'Changelog' };
 // The single source for the website and the packaged update manifest.
 export const releases: Release[] = [
   {
+    // Packaging confirms the release date before publishing.
+    version: '1.4.2', date: '2026-10-11',
+    notes: {
+      zh: [
+        '用方向键或鼠标选中结果后，按空格就能预览，再按一次关闭；打字时空格照常输入。',
+        '设置里新增「排除的文件类型」，可以让 log、js、css 这类文件不出现在结果里。',
+        '修复滚动结果列表时会跳回选中项的问题。',
+      ],
+      en: [
+        'Press Space to preview a result after selecting it with the arrow keys or the mouse, and again to close. While typing, Space still types a space.',
+        'New in Settings: Excluded File Types keeps files such as log, js and css out of your results.',
+        'Fixed the results list jumping back to the selection while scrolling.',
+      ],
+    },
+  },
+  {
     version: '1.4.1', date: '2026-10-09',
     notes: {
       zh: ['菜单栏菜单里新增「Oil Find Pro…」，点一下直接打开 Pro 设置。'],

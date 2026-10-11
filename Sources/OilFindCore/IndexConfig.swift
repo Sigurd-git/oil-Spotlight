@@ -1,4 +1,5 @@
 import Foundation
+import COilFind
 
 public struct IndexConfig {
     public var rootPath: String
@@ -6,6 +7,11 @@ public struct IndexConfig {
     public var excludedNames: Set<String> { didSet { excludedNameBytes = excludedNames.map { Array($0.utf8) } } }
     public var limitedMode: Bool
     public var userExcludedPaths: [String] { didSet { rebuildExcludedBytes() } }
+    public var excludedExtensions: Set<String> { didSet { excludedExtensions = Set(Self.normalizeExtensions(excludedExtensions.sorted().joined(separator: " "))); rebuildExtensionKeys() } }
+    private var excludedExtensionKeys: Set<UInt64> = []
+    private struct ExtensionPattern { let parts: [[[UInt32]]] }
+    private var excludedExtensionPatterns: [ExtensionPattern] = []
+    public var hasExcludedExtensions: Bool { !excludedExtensions.isEmpty }
     public var indexDependencyDirs: Bool
     public var indexPackageContents: Bool
     public var indexUserLibrary: Bool
@@ -21,7 +27,7 @@ public struct IndexConfig {
     private var excludedPathBytes: [[UInt8]]
     private var userExcludedPathsBytes: [[UInt8]]
     private let restrictedBytes = ["Containers", "Group Containers", "Daemon Containers", "Mobile Documents", "CloudStorage"].map { Array((NSHomeDirectory() + "/Library/" + $0).utf8) }
-    public init(rootPath: String = "/", excludedPaths: [String] = [], excludedNames: Set<String> = [], limitedMode: Bool = false, userExcludedPaths: [String] = [], indexDependencyDirs: Bool = false, indexPackageContents: Bool = false, indexUserLibrary: Bool = false, indexSystemDirs: Bool = false) {
+    public init(rootPath: String = "/", excludedPaths: [String] = [], excludedNames: Set<String> = [], limitedMode: Bool = false, userExcludedPaths: [String] = [], indexDependencyDirs: Bool = false, indexPackageContents: Bool = false, indexUserLibrary: Bool = false, indexSystemDirs: Bool = false, excludedExtensions: Set<String> = []) {
         // Normalize components without Foundation's /private/var symlink rewriting.
         let absolute = rootPath.hasPrefix("/") ? rootPath : FileManager.default.currentDirectoryPath + "/" + rootPath
         var components: [Substring] = []
@@ -31,6 +37,7 @@ public struct IndexConfig {
             else { components.append(part) }
         }
         self.rootPath = "/" + components.joined(separator: "/")
+        self.excludedExtensions = Set(Self.normalizeExtensions(excludedExtensions.sorted().joined(separator: " ")))
         self.excludedPaths = excludedPaths
         self.excludedNames = excludedNames
         self.limitedMode = limitedMode
@@ -40,6 +47,7 @@ public struct IndexConfig {
         self.excludedNameBytes = excludedNames.map { Array($0.utf8) }
         self.excludedPathBytes = excludedPaths.map { Array($0.utf8) }
         self.userExcludedPathsBytes = userExcludedPaths.map { Array($0.utf8) }
+        rebuildExtensionKeys()
     }
     public static func standard(limited: Bool = false) -> IndexConfig {
         let home = NSHomeDirectory()
@@ -49,9 +57,15 @@ public struct IndexConfig {
     }
     public var fingerprint: UInt64 {
         var h: UInt64 = 0xcbf29ce484222325
-        let parts = [rootPath, limitedMode ? "1" : "0", indexDependencyDirs ? "1" : "0", indexPackageContents ? "1" : "0", indexUserLibrary ? "1" : "0", indexSystemDirs ? "1" : "0"] + excludedPaths.sorted() + ["|"] + excludedNames.sorted() + ["|"] + userExcludedPaths.sorted()
+        var parts = [rootPath, limitedMode ? "1" : "0", indexDependencyDirs ? "1" : "0", indexPackageContents ? "1" : "0", indexUserLibrary ? "1" : "0", indexSystemDirs ? "1" : "0"] + excludedPaths.sorted() + ["|"] + excludedNames.sorted() + ["|"] + userExcludedPaths.sorted()
+        // Keep existing catalogs valid when no file types are excluded.
+        parts += (excludedExtensions.isEmpty ? [] : ["extensions"] + excludedExtensions.sorted())
         for part in parts { for b in part.utf8 { h = (h ^ UInt64(b)) &* 0x100000001b3 }; h = (h ^ 0xff) &* 0x100000001b3 }
         return h
+    }
+    public var scopeFingerprint: UInt64 {
+        var scope = self; scope.excludedExtensions = []
+        return scope.fingerprint
     }
     // Catalog identity and relative exclusions remain stable after a volume rename.
     public func fingerprint(volumeUUID: String) -> UInt64 {
@@ -99,7 +113,100 @@ public struct IndexConfig {
             if !indexPackageContents && end < path.count && Classifier.isPackageExtension(component) { return .packages }
             start = end
         }
+        if !isDirectory && hasExcludedExtensions {
+            let start = (path.lastIndex(of: 47) ?? -1) + 1
+            let name = UnsafeBufferPointer(start: path.baseAddress?.advanced(by: start), count: path.count - start)
+            if excludesFile(name: name) { return .fileType }
+        }
         return nil
+    }
+    public static func normalizeExtensions(_ text: String) -> [String] {
+        var seen = Set<String>()
+        return text.split(whereSeparator: { $0.isWhitespace || $0 == "," || $0 == "，" }).compactMap {
+            let value = $0.drop(while: { $0 == "." }).lowercased().precomposedStringWithCanonicalMapping
+            return !value.isEmpty && seen.insert(value).inserted ? value : nil
+        }
+    }
+    private mutating func rebuildExtensionKeys() {
+        excludedExtensionKeys = []; excludedExtensionPatterns = []
+        for ext in excludedExtensions {
+            // Uppercase variants also cover Unicode expansions such as sharp S.
+            for text in [ext, ext.uppercased().precomposedStringWithCanonicalMapping] {
+                let bytes = Array(("." + text).utf8)
+                let key = bytes.withUnsafeBufferPointer { Classifier.extensionKey($0) }
+                if key != 0 { excludedExtensionKeys.insert(key) }
+            }
+            let parts = ext.map { character -> [[UInt32]] in
+                let text = String(character)
+                let forms = [text, text.uppercased(), text.lowercased()].flatMap {
+                    [$0.precomposedStringWithCanonicalMapping, $0.decomposedStringWithCanonicalMapping]
+                }
+                var seen = Set<[UInt32]>()
+                return forms.compactMap { form in
+                    let folded = form.unicodeScalars.flatMap { scalar -> [UInt32] in
+                        scalar.value == 0x130 ? [0x69, 0x307] : [Self.lowercaseScalar(scalar.value)]
+                    }
+                    return seen.insert(folded).inserted ? folded : nil
+                }
+            }
+            excludedExtensionPatterns.append(ExtensionPattern(parts: parts))
+        }
+    }
+    public func excludesFile(name: UnsafeBufferPointer<UInt8>) -> Bool {
+        guard hasExcludedExtensions else { return false }
+        let key = Classifier.extensionKey(name)
+        if key != 0 { return excludedExtensionKeys.contains(key) }
+        guard let dot = name.lastIndex(of: 46), dot + 1 < name.count else { return false }
+        for pattern in excludedExtensionPatterns {
+            var offset = dot + 1, matches = true
+            for variants in pattern.parts {
+                var matchedEnd: Int?
+                for variant in variants {
+                    if let end = Self.matchScalars(variant, in: name, from: offset) { matchedEnd = end; break }
+                }
+                guard let end = matchedEnd else { matches = false; break }
+                offset = end
+            }
+            if matches && offset == name.count { return true }
+        }
+        return false
+    }
+    private static func matchScalars(_ expected: [UInt32], in bytes: UnsafeBufferPointer<UInt8>, from start: Int) -> Int? {
+        var offset = start, position = 0
+        while position < expected.count {
+            guard offset < bytes.count, let scalar = nextScalar(bytes, offset: &offset),
+                  lowercaseScalar(scalar) == expected[position] else { return nil }
+            position += 1
+            if scalar == 0x130 {
+                guard position < expected.count, expected[position] == 0x307 else { return nil }
+                position += 1
+            }
+        }
+        return offset
+    }
+    private static func lowercaseScalar(_ scalar: UInt32) -> UInt32 {
+        if scalar < 128 { return scalar >= 65 && scalar <= 90 ? scalar + 32 : scalar }
+        let lower = sift_lowercase_scalar(scalar)
+        return lower == 0x3c2 ? 0x3c3 : lower
+    }
+    private static func nextScalar(_ bytes: UnsafeBufferPointer<UInt8>, offset: inout Int) -> UInt32? {
+        let first = bytes[offset]; offset += 1
+        if first < 128 { return UInt32(first) }
+        let remaining: Int, mask: UInt8
+        switch first {
+        case 0xc2...0xdf: remaining = 1; mask = 0x1f
+        case 0xe0...0xef: remaining = 2; mask = 0x0f
+        case 0xf0...0xf4: remaining = 3; mask = 0x07
+        default: return nil
+        }
+        guard offset + remaining <= bytes.count else { return nil }
+        var value = UInt32(first & mask)
+        for _ in 0..<remaining {
+            let next = bytes[offset]; offset += 1
+            guard next & 0xc0 == 0x80 else { return nil }
+            value = (value << 6) | UInt32(next & 0x3f)
+        }
+        return value
     }
     private func isBuiltInExcluded(path: UnsafeBufferPointer<UInt8>, isDirectory: Bool) -> Bool {
         for bytes in excludedPathBytes where starts(path, with: bytes) { return true }

@@ -190,6 +190,11 @@ public final class IndexUpdater {
                         if let i = store.resolve(bytes: path), i != 0 { sweep = store.remove(i) || sweep; changed = true }
                         return
                     }
+                    if attrs.type != 1 && config.hasExcludedExtensions && config.excludesFile(name: UnsafeBufferPointer(start: path.baseAddress!.advanced(by: change.nameStart), count: path.count - change.nameStart)) {
+                        coverage.record(.fileType, path: path)
+                        if let i = store.resolve(bytes: path), i != 0 { sweep = store.remove(i) || sweep; changed = true }
+                        return
+                    }
                     if path.elementsEqual(config.rootPath.utf8) {
                         if attrs.type == 1 && change.flags & UInt32(kFSEventStreamEventFlagMustScanSubDirs) != 0 { requests.append(ScanRequest(change: ordinal, end: path.count, reconcile: true)) }
                         return
@@ -402,6 +407,10 @@ public final class IndexUpdater {
                     let raw = UnsafeBufferPointer(start: UnsafeRawPointer(e.name).assumingMemoryBound(to: UInt8.self), count: Int(e.name_len))
                     if raw.elementsEqual([46]) || raw.elementsEqual([46,46]) { continue }
                     func append(_ name: UnsafeBufferPointer<UInt8>) {
+                        if e.type != 1 && config.hasExcludedExtensions && config.excludesFile(name: name) {
+                            path.withUnsafeBufferPointer { coverage.record(.fileType, parent: $0, name: name) }
+                            return
+                        }
                         let length = path.count
                         if path.last != 47 { path.append(47) }; path.append(contentsOf: name)
                         defer { path.removeLast(path.count-length) }

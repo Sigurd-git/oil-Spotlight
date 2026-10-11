@@ -195,6 +195,7 @@ extension IndexStore {
             let len = Int(altOff[j+1] - altOff[j]); s.altOff[a] = UInt32(pos); s.altOwner[a] = map[Int(altOwner[j])]
             if len > 0 { s.altNames.advanced(by: pos).update(from: altNames.advanced(by: Int(altOff[j])), count: len) }; pos += len; a += 1
         }
+        s.scopeFingerprint = scopeFingerprint
         s.coverage = coverage
         s.altOff[keys] = UInt32(pos); s.lastEventId = lastEventId; s.fsEventsUUID = fsEventsUUID; s.version = version
         s.buildHash(); return s

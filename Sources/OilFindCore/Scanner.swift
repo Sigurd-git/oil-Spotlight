@@ -213,6 +213,13 @@ public final class Scanner {
                                 if raw.elementsEqual([46]) || raw.elementsEqual([46, 46]) { continue }
                                 let normalized = raw.contains(where: { $0 >= 128 }) ? Array(String(decoding: raw, as: UTF8.self).precomposedStringWithCanonicalMapping.utf8) : nil
                                 let isDir = e.type == 1
+                                let excludedType = !isDir && config.hasExcludedExtensions && (normalized?.withUnsafeBufferPointer { config.excludesFile(name: $0) } ?? config.excludesFile(name: raw))
+                                if excludedType {
+                                    coverageLock.lock()
+                                    task.path.dropLast().withContiguousStorageIfAvailable { coverage.record(.fileType, parent: $0, name: raw) }
+                                    coverageLock.unlock()
+                                    continue
+                                }
 
                                 if !isDir && (filterFiles || !config.userExcludedPaths.isEmpty) {
                                     let isExcluded = withUnsafeTemporaryAllocation(of: UInt8.self, capacity: task.path.count + (normalized?.count ?? raw.count)) { path in

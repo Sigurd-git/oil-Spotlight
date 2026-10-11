@@ -1,17 +1,21 @@
 {
-  "version": "1.4.1",
-  "build": 9,
-  "url": "https://find.oiloil.org/downloads/Oil-Find-1.4.1.zip",
-  "size": 1856976,
-  "sha256": "2ec3edfac679057306efc005e1941e65bbd8102700cc4dca8b3e75717a002dce",
+  "version": "1.4.2",
+  "build": 10,
+  "url": "https://find.oiloil.org/downloads/Oil-Find-1.4.2.zip",
+  "size": 1885504,
+  "sha256": "34739156824818bd1a7273d77ce9b31105f658187f947ccce0327537f3347055",
   "minimumSystemVersion": "14.0",
-  "published": "2026-10-09",
+  "published": "2026-10-11",
   "notes": {
     "zh": [
-      "菜单栏菜单里新增「Oil Find Pro…」，点一下直接打开 Pro 设置。"
+      "用方向键或鼠标选中结果后，按空格就能预览，再按一次关闭；打字时空格照常输入。",
+      "设置里新增「排除的文件类型」，可以让 log、js、css 这类文件不出现在结果里。",
+      "修复滚动结果列表时会跳回选中项的问题。"
     ],
     "en": [
-      "The menu bar menu now has “Oil Find Pro…”, which opens the Pro settings."
+      "Press Space to preview a result after selecting it with the arrow keys or the mouse, and again to close. While typing, Space still types a space.",
+      "New in Settings: Excluded File Types keeps files such as log, js and css out of your results.",
+      "Fixed the results list jumping back to the selection while scrolling."
     ]
   }
 }

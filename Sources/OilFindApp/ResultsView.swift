@@ -103,10 +103,15 @@ final class ResultCell: NSTableCellView {
 }
 
 private final class ResultTable: NSTableView {
+    var minimumDocumentHeight: CGFloat = 0
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(NSSize(width: newSize.width, height: max(newSize.height, minimumDocumentHeight)))
+    }
     var contextMenu: ((Int) -> NSMenu?)?
     var onPointerMove: (() -> Void)?
     var onPointerExit: (() -> Void)?
     var onPointerReselection: (() -> Void)?
+    var onPointerSelection: (() -> Void)?
     private(set) var selectingWithPointer = false
     private var tracking: NSTrackingArea?
     override var acceptsFirstResponder: Bool { false }
@@ -123,6 +128,7 @@ private final class ResultTable: NSTableView {
     override func mouseExited(with event: NSEvent) { onPointerExit?() }
     override func mouseDown(with event: NSEvent) {
         selectingWithPointer = true; defer { selectingWithPointer = false }
+        if row(at: convert(event.locationInWindow, from: nil)) >= 0 { onPointerSelection?() }
         // Reselecting a row does not emit a selection-change notification.
         if selectedRow >= 0, row(at: convert(event.locationInWindow, from: nil)) == selectedRow { onPointerReselection?() }
         super.mouseDown(with: event)
@@ -131,6 +137,7 @@ private final class ResultTable: NSTableView {
         let row = row(at: convert(event.locationInWindow, from: nil))
         guard row >= 0 else { return nil }
         selectingWithPointer = true; defer { selectingWithPointer = false }
+        onPointerSelection?()
         if row == selectedRow { onPointerReselection?() }
         selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
         return contextMenu?(row)
@@ -170,10 +177,13 @@ final class ResultsView: FlippedView, NSTableViewDataSource, NSTableViewDelegate
     // Legacy wheels have no end phase; also bridge the gesture-to-momentum gap.
     private static let scrollQuietPeriod = 0.12
     private var pendingRefresh: SearchPresentation?
+    private var pendingLocalization = false, pendingClear = false
+    private var selectionIdentity: (sourceID: String, store: IndexStore, id: UInt32, path: String)?
     private var scrolling: Bool { liveScrolling || wheelScrolling || momentumScrolling }
     let icons = IconProvider()
     var result: SearchPresentation?
     var currentSource: ((String) -> SearchSource?)?
+    var onPointerSelection: (() -> Void)?
     var onOpen: (() -> Void)?
     var onSelection: (() -> Void)?
     var onContextMenu: ((Int) -> NSMenu?)?
@@ -200,6 +210,7 @@ final class ResultsView: FlippedView, NSTableViewDataSource, NSTableViewDelegate
         table.target = self; table.doubleAction = #selector(doubleClicked)
         table.setDraggingSourceOperationMask(.copy, forLocal: false)
         table.contextMenu = { [weak self] row in self?.onContextMenu?(row) }
+        table.onPointerSelection = { [weak self] in self?.onPointerSelection?() }
         table.onPointerMove = { [weak self] in self?.recomputeHover() }
         table.onPointerExit = { [weak self] in self?.hideHover() }
         table.onPointerReselection = { [weak self] in self?.updateSelection(animated: false) }
@@ -223,20 +234,32 @@ final class ResultsView: FlippedView, NSTableViewDataSource, NSTableViewDelegate
     func show(_ result: SearchResult, selection: Int = 0, resetScroll: Bool = true) { show(SearchPresentation(result), selection: selection, resetScroll: resetScroll) }
     func refresh(_ result: SearchResult) { refresh(SearchPresentation(result)) }
     func show(_ result: SearchPresentation, selection: Int = 0, resetScroll: Bool = true) {
+        if !resetScroll { refresh(result); return }
         cancelPendingRefresh(); hideHover(immediately: true)
         refreshing = true
+        table.minimumDocumentHeight = 0
         self.result = result; table.reloadData()
         select(selection)
         if resetScroll { scroll.contentView.scroll(to: NSPoint(x: 0, y: -6)); scroll.reflectScrolledClipView(scroll.contentView) }
         updateSelection(animated: false); refreshing = false
-        recomputeHover(); onSelection?()
+        rememberSelection(); recomputeHover(); onSelection?()
     }
-    func clear() {
-        cancelPendingRefresh(); cancelPress(); result = nil
+    func clear(preservingViewport: Bool = false) {
+        cancelPendingRefresh()
+        if preservingViewport && (scrolling || dragging) { pendingClear = true; return }
+        let origin = scroll.contentView.bounds.origin
+        if preservingViewport { table.minimumDocumentHeight = max(table.minimumDocumentHeight, origin.y + scroll.contentView.bounds.height) }
+        else { table.minimumDocumentHeight = 0 }
+        cancelPress(); result = nil; selectionIdentity = nil
         table.reloadData(); table.deselectAll(nil); updateSelection(animated: false); hideHover(immediately: true)
+        if preservingViewport { scroll.contentView.scroll(to: origin); scroll.reflectScrolledClipView(scroll.contentView) }
     }
-    func cancelPendingRefresh() { pendingRefresh = nil }
+    func cancelPendingRefresh() { pendingRefresh = nil; pendingClear = false }
     func localize() {
+        guard !scrolling, !dragging else { pendingLocalization = true; return }
+        pendingLocalization = false
+        let origin = scroll.contentView.bounds.origin
+        defer { scroll.contentView.scroll(to: origin); scroll.reflectScrolledClipView(scroll.contentView) }
         let range = table.rows(in: table.visibleRect)
         guard range.location != NSNotFound, range.length > 0 else { return }
         table.reloadData(forRowIndexes: IndexSet(integersIn: range.location..<NSMaxRange(range)), columnIndexes: IndexSet(integer: 0))
@@ -247,11 +270,13 @@ final class ResultsView: FlippedView, NSTableViewDataSource, NSTableViewDelegate
         let action: ResultRefreshAction = scrolling || dragging ? .deferRefresh : sameRows
             ? (previous?.sameMetadata(as: result) == true ? .replaceResult : .reloadVisibleRows) : .reloadPreservingViewport
         if action == .deferRefresh { pendingRefresh = result; return }
-        pendingRefresh = nil
+        pendingRefresh = nil; pendingClear = false
         let origin = scroll.contentView.bounds.origin
+        // A shorter result must not clamp a passive refresh to the new bottom.
+        table.minimumDocumentHeight = max(table.minimumDocumentHeight, origin.y + scroll.contentView.bounds.height)
         var row = selectedRow
         if action == .reloadPreservingViewport {
-            row = selectedItem.flatMap { result.index(sourceID: $0.source.id, store: $0.source.store, id: $0.id, path: $0.path) } ?? 0
+            row = selectionIdentity.flatMap { result.index(sourceID: $0.sourceID, store: $0.store, id: $0.id, path: $0.path) } ?? max(0, selectedRow)
         }
         refreshing = true; self.result = result
         switch action {
@@ -275,7 +300,7 @@ final class ResultsView: FlippedView, NSTableViewDataSource, NSTableViewDelegate
         case .deferRefresh: break
         }
         refreshing = false
-        if action != .replaceResult { recomputeHover(); onSelection?() }
+        if action != .replaceResult { rememberSelection(); recomputeHover(); onSelection?() }
         onRefreshApplied?(result)
     }
     private func hideHover(immediately: Bool = false) {
@@ -313,7 +338,9 @@ final class ResultsView: FlippedView, NSTableViewDataSource, NSTableViewDelegate
     }
     private func finishInteraction() {
         guard !scrolling, !dragging else { return }
-        if let pendingRefresh { refresh(pendingRefresh) }
+        if pendingClear { clear(preservingViewport: true) }
+        else if let pendingRefresh { refresh(pendingRefresh) }
+        if pendingLocalization { localize() }
         recomputeHover()
     }
     deinit { scrollEnd?.cancel(); NotificationCenter.default.removeObserver(self) }
@@ -397,9 +424,13 @@ final class ResultsView: FlippedView, NSTableViewDataSource, NSTableViewDelegate
         if let item = item(at: row), let result { cell.configure(item, query: result.query, icons: icons) }
         return cell
     }
+    private func rememberSelection() {
+        if let item = selectedItem { selectionIdentity = (item.source.id, item.source.store, item.id, item.path) }
+        else if result?.count == 0 { selectionIdentity = nil }
+    }
     func tableViewSelectionDidChange(_ notification: Notification) {
         guard !refreshing else { return }
-        updateSelection(animated: !table.selectingWithPointer); recomputeHover(); onSelection?()
+        rememberSelection(); updateSelection(animated: !table.selectingWithPointer); recomputeHover(); onSelection?()
     }
     @objc private func doubleClicked() { if table.clickedRow >= 0 { onOpen?() } }
     func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? {

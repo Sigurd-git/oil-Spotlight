@@ -25,6 +25,7 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
     private var diagnostics: [QueryDiagnostic] = []
     private var snapshotNoAccess = false
     private let snapshot: Bool
+    private let preferences: UserDefaults
     private let queue = DispatchQueue(label: "com.oiloil.find.search", qos: .userInteractive)
     private let generation = SearchGeneration(), cache = SearchCache()
     private var timer: Timer?
@@ -34,6 +35,12 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
     private var trashing: Set<URL> = []
     private var selectionAnchor: (sourceID: String, store: IndexStore, id: UInt32, path: String)?
     private var pendingNewSearch: Bool?
+    private(set) var browsingResults = false
+    var previewWithSpace: Bool { preferences.object(forKey: "previewWithSpace") as? Bool ?? true }
+    private func setBrowsing(_ browsing: Bool) {
+        browsingResults = browsing
+        footer.spacePreview = browsing && previewWithSpace
+    }
     var manager: IndexManager?
     var supplementaryProvider: SupplementarySearchProvider?
     private let supplementQueue = DispatchQueue(label: "com.oiloil.find.supplement", qos: .userInteractive)
@@ -56,12 +63,9 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
         if results.selectedItem?.source.isOnline != true { quickLook.close() }
         if let presented = results.result, let multi = presented.multiple {
             let current = Set(searchSources.map(\.id))
-            if multi.sources.contains(where: { !current.contains($0.id) }) {
-                if let i = multi.sources.firstIndex(where: { $0.id == "startup" }) { present(multi.results[i], resetScroll: false) }
-                else {
-                    results.clear(); setState(.empty)
-                    footer.text = L10n.text("footer.results", Presentation.countText(0), Presentation.elapsedText(0))
-                }
+            if multi.sources.contains(where: { !current.contains($0.id) }) && current.isEmpty {
+                results.clear(preservingViewport: true); setState(.empty)
+                footer.text = L10n.text("footer.results", Presentation.countText(0), Presentation.elapsedText(0))
             }
         }
         results.localize()
@@ -69,8 +73,9 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
     }
     var hidePanel: (() -> Void)?
     var onSettings: (() -> Void)?
-    init(snapshot: Bool) {
+    init(snapshot: Bool, preferences: UserDefaults = .standard) {
         self.snapshot = snapshot
+        self.preferences = preferences
         super.init(nibName: nil, bundle: nil)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -80,10 +85,10 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
         [searchField, topLine, filters, results, empty, indexing, bottomLine, footer, syntax].forEach(view.addSubview)
         syntax.isHidden = true
         syntax.onExample = { [weak self] example in
-            guard let self else { return }; self.searchField.text = example; self.toggleSyntax(false); self.searchField.focus(); self.startSearch()
+            guard let self else { return }; self.setBrowsing(false); self.searchField.text = example; self.toggleSyntax(false); self.searchField.focus(); self.startSearch()
         }
         searchField.onSelectionChange = { [weak self] in self?.refreshDiagnostics() }
-        searchField.onChange = { [weak self] in self?.startSearch() }
+        searchField.onChange = { [weak self] in self?.setBrowsing(false); self?.startSearch() }
         searchField.onKey = { [weak self] event in self?.handleKey(event) ?? false }
         filters.onChange = { [weak self] in self?.searchField.focus(); self?.startSearch() }
         filters.onSortChange = { [weak self] in
@@ -96,6 +101,7 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
             if !tracking { self?.hideIfInactive() }
         }
         if !snapshot { results.currentSource = { [weak self] id in self?.searchSources.first { $0.id == id } } }
+        results.onPointerSelection = { [weak self] in self?.setBrowsing(true) }
         results.onOpen = { [weak self] in self?.openSelected() }
         results.onSelection = { [weak self] in
             self?.quickLook.refresh()
@@ -128,6 +134,7 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
         if let languageObserver { NotificationCenter.default.removeObserver(languageObserver) }
     }
     private func localize() {
+        footer.spacePreview = browsingResults && previewWithSpace
         filters.localize(); footer.localize(); empty.localize(); indexing.localize(); syntax.localize(); results.localize()
         searchField.localize()
         if let result = results.result { updateFooter(result) }
@@ -171,6 +178,7 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
         }
     }
     func panelWillShow() {
+        setBrowsing(false)
         supplementaryProvider?.userActivity(visible: true, typing: false)
         let currentQuery = Query.parse(searchField.text, store: manager?.store)
         if let result = results.result, result.isCurrent(searchSources),
@@ -260,7 +268,8 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
                     self.results.refresh(found)
                 } else {
                     self.pendingNewSearch = nil
-                    self.present(found, selection: row, resetScroll: !preserveSelection)
+                    if preserveSelection, self.results.result != nil { self.results.refresh(found) }
+                    else { self.present(found, selection: row, resetScroll: !preserveSelection) }
                 }
             }
             if supplementary != nil {
@@ -377,7 +386,13 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
         if command && event.keyCode == 44 { toggleSyntax(); return true }
         if syntaxVisible && event.keyCode == 53 { toggleSyntax(false); return true }
         if syntaxVisible { return false }
+        if [126, 125, 116, 121, 115, 119].contains(event.keyCode) { setBrowsing(true) }
+        if event.keyCode == 49 && flags.intersection([.command, .control, .option, .shift]).isEmpty && browsingResults && previewWithSpace {
+            previewSelected(); return true
+        }
         switch event.keyCode {
+        case 115: results.select(0, repeatKey: event.isARepeat); return true
+        case 119: results.select((results.result?.count ?? 1) - 1, repeatKey: event.isARepeat); return true
         case 126: if command { results.select(0, repeatKey: event.isARepeat) } else { results.move(-1, repeatKey: event.isARepeat) }; return true
         case 125: if command { results.select((results.result?.count ?? 1) - 1, repeatKey: event.isARepeat) } else { results.move(1, repeatKey: event.isARepeat) }; return true
         case 116: results.page(-1, repeatKey: event.isARepeat); return true

@@ -2,7 +2,7 @@ import Foundation
 import Darwin
 
 public enum CoverageReason: String, Codable, CaseIterable {
-    case noAccess, dependency, packages, library, system, userExcluded, cloud, volumes
+    case noAccess, dependency, packages, library, system, userExcluded, fileType, cloud, volumes
     public var scopeKey: String? {
         switch self {
         case .dependency: return "dependency"
@@ -78,7 +78,7 @@ public struct CoverageStats: Codable, Equatable {
     }
 }
 public enum CoverageExplanation: Equatable {
-    case indexed, scope(CoverageReason), userExcluded(String), noAccess, volume, cloud, pending
+    case indexed, scope(CoverageReason), userExcluded(String), fileType(String), noAccess, volume, cloud, pending
 }
 public enum Coverage {
     // Cold, single-path inspection. All filesystem work stays outside the index lock.
@@ -93,6 +93,10 @@ public enum Coverage {
         let exists = path.withCString { lstat($0, &info) == 0 }
         let reason = Array(path.utf8).withUnsafeBufferPointer { config.exclusionReason(path: $0, isDirectory: !exists || info.st_mode & S_IFMT == S_IFDIR) }
         if let reason {
+            if reason == .fileType {
+                let name = (path as NSString).lastPathComponent
+                return .fileType(String(name.suffix(from: name.index(after: name.lastIndex(of: ".")!))).lowercased())
+            }
             if reason == .noAccess { return .noAccess }
             if reason.scopeKey != nil { return .scope(reason) }
         }

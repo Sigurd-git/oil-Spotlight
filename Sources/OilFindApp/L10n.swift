@@ -30,6 +30,7 @@ enum L10n {
         switch explanation {
         case .indexed: return text("explain.indexed")
         case .scope(let reason): return text("explain.scope", text("settings.scope." + reason.scopeKey!))
+        case .fileType(let ext): return text("explain.fileType", ext)
         case .userExcluded(let path): return text("explain.userExcluded", path)
         case .noAccess: return text("explain.noAccess")
         case .volume: return text("explain.volume")
@@ -60,6 +61,15 @@ enum L10n {
         "update.reason.signature": ("新版本的签名不是 Oil Find 的", "the new version isn't signed by Oil Find"),
         "update.reason.permission": ("没有权限替换当前的应用", "Oil Find can't replace the current app"),
         "update.reason.other": ("发生了意外错误", "something unexpected happened"),
+        "settings.previewSpace": ("按空格预览", "Preview with Space"),
+        "settings.previewSpaceHint": ("用方向键或鼠标选中结果后，按空格预览。打字时空格照常输入。", "After selecting a result with the arrow keys or the mouse, press Space to preview it. While typing, Space still types a space."),
+        "settings.excludedTypes": ("排除的文件类型", "Excluded File Types"),
+        "settings.excludedTypesPlaceholder": ("例如 log js css inc", "For example: log js css inc"),
+        "settings.excludedTypesHint": ("这些扩展名的文件不进索引，用空格分开。改动之后会自动重建索引。", "Files with these extensions aren't indexed. Separate them with spaces. The index rebuilds after changes."),
+        "explain.fileType": ("它的扩展名（.%@）在「排除的文件类型」里。", "Its extension (.%@) is in Excluded File Types."),
+        "coverage.fileType": ("排除的文件类型：%@ 个", "Excluded file types: %@"),
+        "hint.space": ("空格", "Space"),
+        "syntax.previewKeys": ("空格 / ⌘Y", "Space / ⌘Y"),
         "coverage.title": ("未覆盖", "Not Covered"),
         "coverage.noAccess": ("没有权限的文件夹：%@ 个", "Folders without access: %@"),
         "coverage.scope": ("按索引范围排除：%@ 项", "Excluded by index scope: %@"),

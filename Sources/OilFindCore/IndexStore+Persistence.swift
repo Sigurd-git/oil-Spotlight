@@ -38,6 +38,7 @@ extension IndexStore {
         put32(3, 8); put32(UInt32(coverageData.count), 116); put32(UInt32(count), 12); put64(UInt64(namesLen), 16); put32(UInt32(altCount), 24); put32(UInt32(rootPath.utf8.count), 28)
         put64(UInt64(altLen), 32); put64(lastEventId, 40); put64(configFingerprint, 48); put64(scanFinishedAt, 56)
         for (i,b) in fsEventsUUID.utf8.prefix(40).enumerated() { header[64+i] = b }
+        put64(scopeFingerprint, 120)
         put32(homeIndex, 104); put32(deletedCount, 108); header[112] = caseSensitiveNames ? 1 : 0
         try header.withUnsafeBytes { try writeBytes($0.baseAddress!, 256) }
         let root = Array(rootPath.utf8); try root.withUnsafeBytes { try writeBytes($0.baseAddress!, root.count) }
@@ -100,6 +101,7 @@ extension IndexStore {
                 s.coverage = coverage
             }
             guard sift_validate_index(s.nameOff, s.parent, s.kind, count, namesLen, s.altOff, s.altOwner, altCount, altLen, homeIndex, deletedCount) != 0 else { return nil }
+            s.scopeFingerprint = u64(120)
             s.lastEventId = u64(40); s.deletedCount = deletedCount; s.liveCount = count - Int(deletedCount)
             s.fsEventsUUID = String(decoding: p[64..<104].prefix(while: { $0 != 0 }), as: UTF8.self)
             return s

@@ -61,7 +61,7 @@ Oil Find 是 macOS 上的文件搜索工具，思路和 Windows 上的 Everythin
 | <kbd>⇧</kbd><kbd>⌘</kbd><kbd>F</kbd> | 打开搜索，可以在设置里改 |
 | <kbd>Return</kbd> | 打开 |
 | <kbd>⌘</kbd><kbd>Return</kbd> | 在访达中显示 |
-| <kbd>⌘</kbd><kbd>Y</kbd> | 用 Quick Look 预览 |
+| <kbd>空格</kbd> / <kbd>⌘</kbd><kbd>Y</kbd> | 用 Quick Look 预览（选中结果后按空格） |
 | <kbd>⌘</kbd><kbd>C</kbd> / <kbd>⌥</kbd><kbd>⌘</kbd><kbd>C</kbd> | 拷贝路径、拷贝名称 |
 | <kbd>⌘</kbd><kbd>⌫</kbd> | 移到废纸篓 |
 | <kbd>Tab</kbd> / <kbd>⌘</kbd><kbd>1</kbd>…<kbd>9</kbd> | 切换类型 |

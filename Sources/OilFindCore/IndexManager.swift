@@ -6,6 +6,9 @@ public final class IndexManager {
     public enum State { case idle, loading, scanning, ready }
     // The requested config belongs to eventQueue; each scan captures its own value.
     private var config: IndexConfig
+    private var settingsObserver: NSObjectProtocol?
+    private let settingsDefaults: UserDefaults?
+    private var offline = false
     private let dbURL: URL
     private let volumeUUID: String?
     private let lock = NSLock()
@@ -29,11 +32,24 @@ public final class IndexManager {
     private var pendingNotification: DispatchWorkItem?, lastNotification = -Double.infinity
     private var stateCallback: ((State) -> Void)?, indexCallback: (() -> Void)?, batchCallback: ((ApplySummary) -> Void)?
     private var replayCount = 0, dataPrefix = false, hashMs = 0.0
-    public init(config: IndexConfig, dbURL: URL, volumeUUID: String? = nil) {
+    public init(config: IndexConfig, dbURL: URL, volumeUUID: String? = nil, settingsDefaults: UserDefaults? = .standard) {
         self.config = config; self.dbURL = dbURL; self.volumeUUID = volumeUUID
+        self.settingsDefaults = settingsDefaults
+        if let values = settingsDefaults?.stringArray(forKey: "excludedExtensions") { self.config.excludedExtensions = Set(values) }
         eventQueue.setSpecific(key: eventKey, value: true); saveQueue.setSpecific(key: saveKey, value: true)
+        if let settingsDefaults {
+            settingsObserver = NotificationCenter.default.addObserver(forName: SettingsPreferences.excludedExtensionsChanged, object: settingsDefaults, queue: nil) { [weak self] notification in
+                guard let extensions = notification.userInfo?["extensions"] as? Set<String> else { return }
+                self?.eventQueue.async { [weak self] in
+                    guard let self, self.config.excludedExtensions != extensions else { return }
+                    self.config.excludedExtensions = extensions
+                    if self.locked({ self.offline }) { self.reloadOffline() }
+                    else { self.beginRescan() }
+                }
+            }
+        }
     }
-    deinit { timer?.cancel(); pendingNotification?.cancel(); currentScanner?.cancel() }
+    deinit { if let settingsObserver { NotificationCenter.default.removeObserver(settingsObserver) }; timer?.cancel(); pendingNotification?.cancel(); currentScanner?.cancel() }
     private func locked<T>(_ body: () -> T) -> T { lock.lock(); defer { lock.unlock() }; return body() }
     public var state: State { locked { currentState } }
     public var store: IndexStore? { locked { currentStore } }
@@ -76,27 +92,58 @@ public final class IndexManager {
     public func startOffline() {
         eventQueue.async { [weak self] in
             guard let self, !self.locked({ self.active }) else { return }
-            let token = self.locked { self.active = true; self.generation += 1; return self.generation }
-            self.setState(.loading)
-            let config = self.config
-            self.scanQueue.async { [weak self] in
-                guard let self, self.valid(token) else { return }
-                let loaded = IndexStore.load(from: self.dbURL.path)
-                self.eventQueue.async {
-                    guard self.valid(token) else { return }
-                    guard let loaded, loaded.configFingerprint == self.fingerprint(config) else { self.locked { self.active = false }; self.setState(.idle); return }
-                    if self.volumeUUID != nil { loaded.rebase(to: config.rootPath) }
-                    self.locked { self.currentStore = loaded }
-                    self.saveQueue.sync { self.savedStore = loaded; self.savedVersion = loaded.version }
-                    self.setState(.ready); self.notifyIndex(replaced: true)
+            self.locked { self.active = true; self.offline = true }
+            self.reloadOffline()
+        }
+    }
+    private func scopeFingerprint(_ config: IndexConfig) -> UInt64 {
+        var scope = config; scope.excludedExtensions = []
+        return fingerprint(scope)
+    }
+    private func reloadOffline() {
+        guard locked({ active && offline }) else { return }
+        let token = locked { generation += 1; return generation }
+        setState(.loading)
+        let config = self.config
+        scanQueue.async { [weak self] in
+            guard let self, self.valid(token) else { return }
+            let loaded = IndexStore.load(from: self.dbURL.path)
+            self.eventQueue.async {
+                guard self.valid(token) else { return }
+                guard let loaded, loaded.configFingerprint == self.fingerprint(config)
+                    || loaded.scopeFingerprint == self.scopeFingerprint(config)
+                    || loaded.configFingerprint == self.scopeFingerprint(config) else {
+                    self.locked { self.active = false; self.currentStore = nil }
+                    self.setState(.idle); self.notifyIndex(replaced: true); return
                 }
+                if self.volumeUUID != nil { loaded.rebase(to: config.rootPath) }
+                // Filter a fresh catalog in memory; retain the on-disk snapshot for undo and reconnect.
+                if config.hasExcludedExtensions {
+                    loaded.write {
+                        var bucket = loaded.coverage[.fileType], changed = false
+                        for i in 1..<loaded.count where loaded.isLive(UInt32(i)) && loaded.flags[i] & SiftFlag.dir == 0 {
+                            guard config.excludesFile(name: loaded.nameBytes(UInt32(i))) else { continue }
+                            bucket.count &+= 1
+                            if bucket.examples.count < 5 {
+                                let path = loaded.path(UInt32(i))
+                                if !bucket.examples.contains(path) { bucket.examples.append(path) }
+                            }
+                            changed = loaded.remove(UInt32(i)) || changed
+                        }
+                        loaded.coverage.buckets[.fileType] = bucket
+                        if changed { loaded.version &+= 1 }
+                    }
+                }
+                self.locked { self.currentStore = loaded }
+                self.saveQueue.sync { self.savedStore = loaded; self.savedVersion = loaded.version }
+                self.setState(.ready); self.notifyIndex(replaced: true)
             }
         }
     }
     public func start() {
         eventQueue.async { [weak self] in
             guard let self, !self.locked({ self.active }) else { return }
-            let token = self.locked { self.active = true; self.replayCount = 0; self.dataPrefix = false; self.generation += 1; return self.generation }
+            let token = self.locked { self.active = true; self.offline = false; self.replayCount = 0; self.dataPrefix = false; self.generation += 1; return self.generation }
             self.setState(.loading)
             let config = self.config
             self.scanQueue.async { [weak self] in
@@ -170,6 +217,7 @@ public final class IndexManager {
         let s = IndexStore(scan: output, config: config)
         guard valid(token) else { return }
         s.configFingerprint = fingerprint(config)
+        s.scopeFingerprint = scopeFingerprint(config)
         let begin = CFAbsoluteTimeGetCurrent(); s.write { s.buildHash() }
         let ms = (CFAbsoluteTimeGetCurrent()-begin)*1000
         s.lastEventId = startId; s.scanFinishedAt = UInt64(Date().timeIntervalSince1970); s.fsEventsUUID = uuid ?? ""
@@ -239,7 +287,9 @@ public final class IndexManager {
         eventQueue.async { [weak self] in
             guard let self, self.fingerprint(self.config) != self.fingerprint(config) else { return }
             self.config = config
-            self.beginRescan()
+            if let values = self.settingsDefaults?.stringArray(forKey: "excludedExtensions") { self.config.excludedExtensions = Set(values) }
+            if self.locked({ self.offline }) { self.reloadOffline() }
+            else { self.beginRescan() }
         }
     }
     private func scanLatestConfigIfNeeded() {
@@ -247,7 +297,7 @@ public final class IndexManager {
     }
     private func beginRescan() {
         let token: Int? = locked {
-            guard active && currentState == .ready && !rescanning else { return nil }
+            guard active && !offline && currentState == .ready && !rescanning else { return nil }
             rescanning = true; return generation
         }
         guard let token else { return }
@@ -285,7 +335,7 @@ public final class IndexManager {
         self.timer = timer; timer.resume()
     }
     private func saveChanged() {
-        guard let s = store else { return }
+        guard !locked({ offline }), let s = store else { return }
         let version = s.read { s.version }
         if savedStore === s && savedVersion == version { return }
         do {

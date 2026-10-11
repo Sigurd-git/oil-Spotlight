@@ -61,7 +61,7 @@ You can paste paths straight from a terminal or editor: `file://` URLs, quoted o
 | <kbd>⇧</kbd><kbd>⌘</kbd><kbd>F</kbd> | Open search (configurable in Settings) |
 | <kbd>Return</kbd> | Open |
 | <kbd>⌘</kbd><kbd>Return</kbd> | Show in Finder |
-| <kbd>⌘</kbd><kbd>Y</kbd> | Quick Look |
+| <kbd>Space</kbd> / <kbd>⌘</kbd><kbd>Y</kbd> | Quick Look (Space after selecting a result) |
 | <kbd>⌘</kbd><kbd>C</kbd> / <kbd>⌥</kbd><kbd>⌘</kbd><kbd>C</kbd> | Copy path, copy name |
 | <kbd>⌘</kbd><kbd>⌫</kbd> | Move to Trash |
 | <kbd>Tab</kbd> / <kbd>⌘</kbd><kbd>1</kbd>…<kbd>9</kbd> | Switch kind |

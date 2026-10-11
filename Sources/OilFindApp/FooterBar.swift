@@ -3,7 +3,7 @@ import QuartzCore
 import OilFindCore
 
 private final class KeyHint: FlippedView {
-    let key: String
+    var key: String { didSet { needsLayout = true; needsDisplay = true } }
     private let label = Theme.label(11.5, .regular, .tertiaryLabelColor)
     private let keyFont = NSFont.systemFont(ofSize: 10.5, weight: .medium)
     private var capWidth: CGFloat { max(18, Theme.textWidth(key, font: keyFont) + 10) }
@@ -29,6 +29,9 @@ final class FooterBar: FlippedView {
     private let status = Theme.label(11.5, .regular, .tertiaryLabelColor)
     private let hints = [KeyHint("↩", L10n.text("hint.open")), KeyHint("⌘↩", L10n.text("hint.reveal")), KeyHint("⌘Y", L10n.text("hint.preview")), KeyHint("⌘C", L10n.text("hint.copy"))]
     private let syntax = KeyHint("⌘/", L10n.text("hint.syntax"))
+    var spacePreview = false { didSet { updatePreviewKey() } }
+    var previewKey: String { spacePreview ? L10n.text("hint.space") : "⌘Y" }
+    private func updatePreviewKey() { hints[2].key = previewKey; needsLayout = true }
     var warning = false { didSet { status.textColor = warning ? .systemOrange : .tertiaryLabelColor; needsLayout = true } }
     var text: String { get { status.stringValue } set { status.stringValue = newValue } }
     var actionable = false { didSet { hints.forEach { $0.isHidden = !actionable }; needsLayout = true } }
@@ -59,6 +62,7 @@ final class FooterBar: FlippedView {
         }
     }
     func localize() {
+        updatePreviewKey()
         for (hint, key) in zip(hints, ["open", "reveal", "preview", "copy"]) { hint.localize(L10n.text("hint." + key)) }
         syntax.localize(L10n.text("hint.syntax"))
         if let (kind, value) = toastContent { toast.stringValue = Presentation.toastText(kind, value: value, chinese: L10n.chinese) }

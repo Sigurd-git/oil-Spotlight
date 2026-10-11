@@ -3,6 +3,7 @@ import OilFindCore
 
 public enum Application {
     public static func run(appExtension: ApplicationExtension? = nil, arguments: [String] = Array(CommandLine.arguments.dropFirst())) {
+    if let status = appExtension?.handleLaunch(arguments: arguments) { exit(status) }
 #if DEBUG
     var arguments = arguments
     do { try appExtension?.prepareArguments(&arguments) }

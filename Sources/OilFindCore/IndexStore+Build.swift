@@ -83,6 +83,7 @@ extension IndexStore {
         let altLen = refs.reduce(0) { $0 + $1.length }
         let caseSensitiveNames = config.rootPath.withCString { pathconf($0, _PC_CASE_SENSITIVE) == 1 }
         self.init(rootPath: config.rootPath, count: scan.count, namesLen: rawLen, altCount: refs.count, altLen: altLen, fingerprint: config.fingerprint, homeIndex: scan.homeIndex, finishedAt: scan.finishedAt, caseSensitiveNames: caseSensitiveNames)
+        scopeFingerprint = config.scopeFingerprint
         coverage = scan.coverage
         nameOff.update(from: off, count: off.count)
         parent[0] = 0; sizeC[0] = 0; mtime[0] = 0; flags[0] = SiftFlag.dir

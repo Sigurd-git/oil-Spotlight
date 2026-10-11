@@ -1,10 +1,20 @@
 import Foundation
 
 public enum SettingsPreferences {
+    public static let excludedExtensionsChanged = Notification.Name("com.oiloil.find.excludedExtensionsChanged")
+    public static func setExcludedExtensions(_ text: String, in defaults: UserDefaults = .standard) -> String {
+        let values = IndexConfig.normalizeExtensions(text)
+        let previous = defaults.stringArray(forKey: "excludedExtensions") ?? []
+        defaults.set(values, forKey: "excludedExtensions")
+        if Set(previous) != Set(values) {
+            NotificationCenter.default.post(name: excludedExtensionsChanged, object: defaults, userInfo: ["extensions": Set(values)])
+        }
+        return values.joined(separator: " ")
+    }
     public static func register(in defaults: UserDefaults = .standard) {
         defaults.register(defaults: [
             "hotKeyCode": Int(Shortcut.defaultKeyCode), "hotKeyModifiers": Int(Shortcut.defaultModifiers),
-            "pinyinEnabled": true, "userExcludedPaths": [String](), "skippedFullDiskAccess": false, "didFinishOnboarding": false,
+            "previewWithSpace": true, "excludedExtensions": [String](), "pinyinEnabled": true, "userExcludedPaths": [String](), "skippedFullDiskAccess": false, "didFinishOnboarding": false,
             "indexDependencyDirs": false, "indexPackageContents": false, "indexUserLibrary": false, "indexSystemDirs": false,
             "sortKey": "relevance", "sortAscending": false
         ])
@@ -25,6 +35,7 @@ public enum SettingsPreferences {
         config.indexPackageContents = defaults.bool(forKey: "indexPackageContents")
         config.indexUserLibrary = defaults.bool(forKey: "indexUserLibrary")
         config.indexSystemDirs = defaults.bool(forKey: "indexSystemDirs")
+        config.excludedExtensions = Set(defaults.stringArray(forKey: "excludedExtensions") ?? [])
         config.userExcludedPaths = ExcludedFolders.adding(defaults.stringArray(forKey: "userExcludedPaths") ?? [], to: [])
         return config
     }
