@@ -5,6 +5,14 @@ import OilFindCore
 @testable import OilFindApp
 
 final class M26UITests: XCTestCase {
+    private func resetPreviewPanel() {
+        guard QLPreviewPanel.sharedPreviewPanelExists(), let preview = QLPreviewPanel.shared() else { return }
+        // Keep the native singleton alive; closing it can recreate a panel during later callbacks.
+        preview.dataSource = nil; preview.delegate = nil
+        preview.orderOut(nil)
+        let hidden = expectation(for: NSPredicate { _, _ in !preview.isVisible }, evaluatedWith: preview)
+        wait(for: [hidden], timeout: 3)
+    }
     private func fixture() throws -> (URL, IndexStore, IndexConfig) {
         _ = NSApplication.shared
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("OilFindM26-" + UUID().uuidString)
@@ -128,13 +136,8 @@ extension M26UITests {
         let panel = SearchPanel(snapshot: true)
         defer {
             panel.searchController.quickLook.close()
-            // Tear down the process-wide native panel before the next controller test.
-            QLPreviewPanel.shared().close()
             panel.close()
-            RunLoop.main.run(until: Date().addingTimeInterval(0.3))
-            let preview = QLPreviewPanel.shared()!
-            preview.dataSource = nil; preview.delegate = nil
-            preview.orderOut(nil)
+            resetPreviewPanel()
         }
         let controller = panel.searchController
         try controller.prepareSnapshot(state: "results", query: "row", options: .init(sort: .name, ascending: true), store: store, selection: 0)
