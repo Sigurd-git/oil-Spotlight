@@ -61,6 +61,9 @@ root = Path(os.environ["OILFIND_TEST_ROOT"])
 if name == "swift":
     if failure == "build": sys.exit(1)
     if "--show-bin-path" in args: print(root / "binary")
+    elif args[:2] == ["package", "describe"]:
+        if failure == "package": sys.exit(1)
+        print(os.environ.get("OILFIND_TEST_PACKAGE", '{"name":"OilFind","targets":[]}'))
 elif name == "strip":
     if failure == "strip": sys.exit(1)
 elif name == "security":
@@ -330,6 +333,49 @@ elif name == "xcrun":
         self.assertIn(["swift", "build", "-c", "debug"], self.calls())
         self.assertFalse(any(call[0] == "strip" for call in self.calls()))
         self.assert_no_stage()
+
+    def test_declared_resources_are_staged_and_obsolete_bundles_removed(self):
+        package = json.dumps({"name": "OilFind", "targets": [
+            {"c99name": "ActiveExtension", "resources": [{"path": "Resources"}]},
+            {"c99name": "NoResources", "resources": []},
+        ]})
+        declared = self.binary.parent / "OilFind_ActiveExtension.bundle"
+        declared.mkdir()
+        (declared / "icon.png").write_bytes(b"extension icon")
+        orphan = self.binary.parent / "OilFind_RemovedExtension.bundle"
+        orphan.mkdir()
+        (orphan / "unused").write_text("not an active target")
+        app = self.seed_old_app()
+        stale = app / "Contents/Resources/OilFind_RemovedExtension.bundle"
+        stale.mkdir(parents=True)
+        (stale / "old").write_text("obsolete resource")
+
+        result = self.run_script(OILFIND_TEST_PACKAGE=package)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        resources = app / "Contents/Resources"
+        self.assertEqual((resources / declared.name / "icon.png").read_bytes(), b"extension icon")
+        self.assertFalse((resources / orphan.name).exists())
+        self.assertIn(["swift", "package", "describe", "--type", "json"], self.calls())
+        self.assert_no_stage()
+
+    def test_resource_failures_preserve_existing_bundle_before_signing(self):
+        app = self.seed_old_app()
+        existing = app / "Contents/Resources/OilFind_Existing.bundle"
+        existing.mkdir(parents=True)
+        (existing / "keep").write_text("existing resources")
+        package = json.dumps({"name": "OilFind", "targets": [
+            {"c99name": "MissingExtension", "resources": [{"path": "Resources"}]},
+        ]})
+        for failure in ("", "package"):
+            with self.subTest(failure=failure):
+                self.log.unlink(missing_ok=True)
+                result = self.run_script(OILFIND_TEST_PACKAGE=package, OILFIND_TEST_FAIL=failure)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual((app / "stale-resource").read_text(), "old artifact")
+                self.assertEqual((existing / "keep").read_text(), "existing resources")
+                self.assertFalse(any(call[0] in ("codesign", "mv") for call in self.calls()))
+                self.assert_no_stage()
 
     def test_signing_identity_selection_is_preserved(self):
         for environment, identity, hardened in (

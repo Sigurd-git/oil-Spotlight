@@ -152,13 +152,67 @@ final class LauncherRebaseTests: XCTestCase {
                        SearchSource(id: "archive", displayName: "Archive", isOnline: true, store: b)]
         let controller = SearchViewController(snapshot: true)
         let app = LauncherApp(name: "Report", path: "/generated/Report.app")
+        controller.applications.prepareSnapshot([app])
         try controller.prepareLauncherSnapshot(SearchCoordinator.compose(raw: "report", scope: .all,
                                                 filePresentation: try result(sources), extras: [.app(app)]))
+        var activeSources = sources
+        controller.results.currentSource = { id in activeSources.first { $0.id == id } }
+        let displayed = try XCTUnwrap(controller.results.snapshot)
+        let withdrawnRow = try XCTUnwrap((0..<displayed.count).first { position in
+            if case .file(let item)? = displayed.row(at: position) { return item.source.id == "archive" }
+            return false
+        })
+        let table = NSTableView()
+        XCTAssertNotNil(controller.results.tableView(table, pasteboardWriterForRow: withdrawnRow))
+        let published = expectation(description: "Remaining source and application rows applied")
+        let applySnapshot = controller.results.onSnapshotApplied
+        var completed = false
+        controller.results.onSnapshotApplied = { found in
+            applySnapshot?(found)
+            guard !completed, !found.filesPending, found.filePresentation?.sources.map(\.id) == ["startup"],
+                  found.leading.contains(where: { $0.identity == "file:" + app.path }) else { return }
+            completed = true; published.fulfill()
+        }
+        defer { controller.results.onSnapshotApplied = applySnapshot }
+        activeSources = [sources[0]]
         controller.additionalSources = { [sources[0]] }
         controller.sourcesChanged()
         XCTAssertEqual(controller.scopes.scope, .all)
         XCTAssertTrue(controller.results.snapshot?.leading.contains { $0.identity == "file:" + app.path } == true)
+        // Keep the old presentation until the replacement is ready, but reject stale file actions immediately.
+        XCTAssertFalse(try XCTUnwrap(controller.results.result).isCurrent(activeSources))
+        XCTAssertNil(controller.results.tableView(table, pasteboardWriterForRow: withdrawnRow))
+        wait(for: [published], timeout: 3)
         XCTAssertFalse(controller.results.result?.sources.contains { $0.id == "archive" } == true)
+        XCTAssertTrue(controller.results.snapshot?.leading.contains { $0.identity == "file:" + app.path } == true)
+        XCTAssertEqual(controller.scopes.scope, .all)
+    }
+
+    func testWithdrawnApplicationCannotLaunchFromRetainedSnapshot() throws {
+        _ = NSApplication.shared
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("LauncherApp-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let app = LauncherApp(name: "Synthetic App", path: directory.path)
+        let controller = SearchViewController(snapshot: true)
+        controller.applications.prepareSnapshot([app])
+        try controller.prepareLauncherSnapshot(SearchSnapshot(raw: "Synthetic", scope: .apps, leading: [.app(app)]))
+        var opened: [URL] = [], hidden = 0
+        controller.openApplication = { opened.append($0); return true }
+        controller.hidePanel = { hidden += 1 }
+        let enter = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                                  windowNumber: 0, context: nil, characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36))
+
+        // The displayed path still exists after the catalog withdraws it.
+        controller.applications.prepareSnapshot([])
+        XCTAssertTrue(controller.handleKey(enter))
+        XCTAssertTrue(opened.isEmpty)
+        XCTAssertEqual(hidden, 0)
+
+        controller.applications.prepareSnapshot([app])
+        XCTAssertTrue(controller.handleKey(enter))
+        XCTAssertEqual(opened.map(\.path), [directory.path])
+        XCTAssertEqual(hidden, 1)
     }
 
     private final class Provider: SupplementarySearchProvider {
