@@ -11,6 +11,7 @@ import { ICONS } from '@/content/icons';
 import { GET } from '@/app/api/price/route';
 import { loadPriceDisplay } from '@/lib/price';
 import specification from './fixtures/m23-copy.json';
+import clarity from './fixtures/m28-copy.json';
 
 // Exact copy follows the M23 tables with the M27s document-search updates.
 const plain = (s: string) => s.replace(/\*\*/g, '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
@@ -63,6 +64,40 @@ describe.each(['zh', 'en'] as const)('Pro introduction (%s)', lang => {
       const html = renderToStaticMarkup(createElement(TopBar, { lang, page }));
       expect(html).toContain(`href="${pagePath(lang, 'pro')}"`);
     }
+  });
+});
+
+describe.each(['zh', 'en'] as const)('Free vs Pro clarity (%s)', lang => {
+  const Home = lang === 'zh' ? ZhHome : EnHome;
+  const Pro = lang === 'zh' ? ZhPro : EnPro;
+  const expected = clarity[lang];
+  it('renders the exact open-source scope and a localized comparison link below the fine print', () => {
+    const html = renderToStaticMarkup(createElement(Home));
+    expect(text(html)).toContain(expected.sourceSubtitle);
+    expect(text(html.slice(html.indexOf('<footer')))).toContain(expected.footerOpenSource);
+    const section = html.match(/<section[^>]*id="pro"[^>]*>([\s\S]*?)<\/section>/)![1];
+    const link = renderToStaticMarkup(createElement('a', { href: `${pagePath(lang, 'pro')}#compare` }, expected.compareLink));
+    expect(section).toContain(link);
+    expect(section.indexOf(link)).toBeGreaterThan(section.indexOf(proCopy[lang].fine));
+    expect(html).not.toContain('id="compare"');
+  });
+  it('renders an accessible three-column comparison after pricing and before the FAQ, with empty Pro-only free cells', () => {
+    const html = renderToStaticMarkup(createElement(Pro));
+    const section = html.match(/<section[^>]*id="compare"[^>]*>([\s\S]*?)<\/section>/)![1];
+    expect(html.indexOf('id="compare"')).toBeGreaterThan(html.indexOf('/api/checkout'));
+    expect(html.indexOf('id="compare"')).toBeLessThan(html.indexOf(`<h2>${proCopy[lang].questions}</h2>`));
+    expect(text(section)).toContain(expected.compare.title);
+    expect(text(section.match(/<caption[^>]*>([\s\S]*?)<\/caption>/)![1])).toBe(expected.compare.title);
+    expect(section.match(/scope="col"/g)).toHaveLength(3);
+    const rows = [...section.matchAll(/<tr>([\s\S]*?)<\/tr>/g)].slice(1);
+    expect(rows).toHaveLength(8);
+    rows.forEach((row, index) => {
+      expect(row[1]).toContain('scope="row"');
+      const cells = [...row[1].matchAll(/<(?:th|td)[^>]*>([\s\S]*?)<\/(?:th|td)>/g)].map(cell => text(cell[1]));
+      expect(cells).toEqual(expected.compare.rows[index]);
+    });
+    expect(text(section)).toContain(expected.compare.note);
+    expect(text(html.slice(html.indexOf('<footer')))).toContain(expected.footerOpenSource);
   });
 });
 

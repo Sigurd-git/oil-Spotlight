@@ -1,0 +1,110 @@
+{
+  "zh": {
+    "sourceSubtitle": "免费版用 MIT 许可证开源，代码、问题反馈和新版本都在 GitHub 上。Pro 是另外的闭源付费功能，不影响免费版。",
+    "footerOpenSource": "免费版的代码在 GitHub 上，MIT 许可证，欢迎提问题和改进。Pro 功能不开源。",
+    "compareLink": "查看免费版和 Pro 的区别",
+    "compare": {
+      "title": "免费版和 Pro 的区别",
+      "feature": "功能",
+      "free": "免费版",
+      "pro": "Pro",
+      "rows": [
+        [
+          "按文件名搜索：拼音、通配符、正则，按类型、大小、时间筛选",
+          "✓",
+          "✓"
+        ],
+        [
+          "实时更新、Quick Look 预览、拖放、全键盘操作",
+          "✓",
+          "✓"
+        ],
+        [
+          "排除文件夹和文件类型、应用内更新",
+          "✓",
+          "✓"
+        ],
+        [
+          "外置磁盘：插上就建立索引，拔掉后也能搜到",
+          "",
+          "✓"
+        ],
+        [
+          "图片内容：截图、照片里的文字与画面",
+          "",
+          "✓"
+        ],
+        [
+          "文档内容：PDF、Word、PowerPoint、Excel、Pages、Markdown 等",
+          "",
+          "✓"
+        ],
+        [
+          "源码",
+          "开源，MIT",
+          "闭源"
+        ],
+        [
+          "价格",
+          "免费",
+          "¥49 一次买断（其他地区 $9.99）"
+        ]
+      ],
+      "note": "Pro 和免费版是同一个安装包。不激活也可以一直免费使用；试用结束只停用 Pro 功能。"
+    }
+  },
+  "en": {
+    "sourceSubtitle": "The free version is open source under the MIT license; code, issues and releases all live on GitHub. Pro is a separate closed-source paid add-on and doesn’t change the free version.",
+    "footerOpenSource": "The free version’s code is on GitHub under the MIT license. Issues and pull requests are welcome. Pro features are not open source.",
+    "compareLink": "Compare Free and Pro",
+    "compare": {
+      "title": "Free vs Pro",
+      "feature": "Feature",
+      "free": "Free",
+      "pro": "Pro",
+      "rows": [
+        [
+          "Search by file name: pinyin, wildcards, regex, filters by kind, size and date",
+          "✓",
+          "✓"
+        ],
+        [
+          "Live updates, Quick Look, drag and drop, full keyboard control",
+          "✓",
+          "✓"
+        ],
+        [
+          "Excluded folders and file types, in-app updates",
+          "✓",
+          "✓"
+        ],
+        [
+          "External drives: indexed when plugged in, searchable when unplugged",
+          "",
+          "✓"
+        ],
+        [
+          "Image content: text and objects in screenshots and photos",
+          "",
+          "✓"
+        ],
+        [
+          "Document content: PDF, Word, PowerPoint, Excel, Pages, Markdown and more",
+          "",
+          "✓"
+        ],
+        [
+          "Source code",
+          "Open source, MIT",
+          "Closed source"
+        ],
+        [
+          "Price",
+          "Free",
+          "$9.99 once (¥49 in mainland China)"
+        ]
+      ],
+      "note": "Pro and the free version are the same download. You can keep using it for free without activating; when a trial ends, only Pro features turn off."
+    }
+  }
+}

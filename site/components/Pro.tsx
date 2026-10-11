@@ -16,6 +16,18 @@ export function Pro({ lang }: { lang: Language }) {
   const t = proCopy[lang];
   return <><StructuredData lang={lang} page="pro" /><TopBar lang={lang} page="pro" /><main>
     <ProSection lang={lang} standalone />
+    <section className={`col sect ${styles.compare}`} id="compare">
+      <h2>{t.compare.title}</h2>
+      <table className={styles.compareTable}>
+        <caption className={styles.srOnly}>{t.compare.title}</caption>
+        <colgroup><col /><col className={styles.planColumn} /><col className={styles.planColumn} /></colgroup>
+        <thead><tr><th scope="col">{t.compare.feature}</th><th scope="col">{t.compare.free}</th><th scope="col">{t.compare.pro}</th></tr></thead>
+        <tbody>{t.compare.rows.map(([feature, free, pro]) => <tr key={feature}>
+          <th scope="row">{feature}</th><td>{free}</td><td>{pro}</td>
+        </tr>)}</tbody>
+      </table>
+      <p className={styles.compareNote}>{t.compare.note}</p>
+    </section>
     <section className={`col sect ${styles.questions}`}>
       <h2>{t.questions}</h2>
       <dl>{t.faq.map(item => <div className={styles.question} key={item.q}>

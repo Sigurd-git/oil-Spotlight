@@ -1,4 +1,4 @@
-import { proCopy, type Language } from '@/content/dict';
+import { pagePath, proCopy, type Language } from '@/content/dict';
 import { Icon } from './Icon';
 import { PriceAmount } from './PriceAmount';
 import panel from './SearchPanel.module.css';
@@ -45,5 +45,6 @@ export function ProSection({ lang, standalone = false }: { lang: Language; stand
       <a className="btn soft big" href="/downloads/Oil-Find.zip">{t.download}</a>
     </div>
     <p className={styles.fine}>{t.fine}</p>
+    {!standalone && <p className={styles.compareLink}><a href={`${pagePath(lang, 'pro')}#compare`}>{t.compareLink}</a></p>}
   </section>;
 }

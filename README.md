@@ -19,6 +19,8 @@
 
 Oil Find 是 macOS 上的文件搜索工具，思路和 Windows 上的 Everything 一样：自己给磁盘上的文件名建一份内存索引，不依赖 Spotlight。按 ⇧⌘F，屏幕正中弹出搜索框，每打一个字，结果就跟着出来；文件新建、改名、删除，索引都会实时更新。
 
+按文件名搜索的全部功能都在免费版里，代码开源。搜外置磁盘、图片和文档内容是付费的 [Pro](#oil-find-pro) 功能。
+
 ## 为什么快
 
 - **文件名放在一块连续的内存里。** 几十万个名称按列存放，搜索时从头到尾扫一遍，不给每个文件单独创建对象。
@@ -71,15 +73,27 @@ Oil Find 是 macOS 上的文件搜索工具，思路和 Windows 上的 Everythin
 
 ## Oil Find Pro
 
-免费版一直免费，也一直开源。Pro 是闭源的付费扩展，¥49（其他地区 $9.99）一次买断，可以免费试用 7 天：
+免费版开源，永久免费。Pro 是在它之上的闭源付费功能，一次买断，可以免费试用 7 天。
 
-- **外置磁盘**：插上就建立索引，拔掉后也能搜到，结果会标出文件在哪块盘上。
-- **图片内容**：搜截图、照片和拍下的单据里的文字与画面。
-- **文档内容**：搜 PDF、Word、PowerPoint、Excel、Pages、Markdown 和纯文本里的文字，扫描版 PDF 也能识别。
+| | 免费版 | Pro |
+| --- | :---: | :---: |
+| 按文件名搜索：拼音、通配符、正则，按类型、大小、时间筛选 | ✓ | ✓ |
+| 实时更新、Quick Look 预览、拖放、全键盘操作 | ✓ | ✓ |
+| 排除文件夹和文件类型、应用内更新 | ✓ | ✓ |
+| 外置磁盘：插上就建立索引，拔掉后也能搜到 | | ✓ |
+| 图片内容：截图、照片里的文字与画面 | | ✓ |
+| 文档内容：PDF、Word、PowerPoint、Excel、Pages、Markdown 等 | | ✓ |
+| 源码 | 开源，MIT | 闭源 |
+| 价格 | 免费 | ¥49（其他地区 $9.99）一次买断 |
 
-图片和文档都在本机处理，不上传。
+Pro 和免费版是同一个安装包：
 
-Releases 和官网的安装包都带 Pro，在设置里点「免费试用 7 天」就能开始；从源码构建得到的是免费版。详见 [find.oiloil.org/pro](https://find.oiloil.org/pro)。
+- 从 Releases 或官网下载后，免费功能直接可用，不激活也不会过期。
+- 想用 Pro，在设置的 Oil Find Pro 分区点「免费试用 7 天」，或输入授权码。试用结束只停用 Pro 功能，其他照常。
+- 从源码构建得到的是不含 Pro 的免费版。
+- 图片和文档都在本机处理，不上传。
+
+购买和详情见 [find.oiloil.org/pro](https://find.oiloil.org/pro)。
 
 ## 安装
 
@@ -89,6 +103,8 @@ Releases 和官网的安装包都带 Pro，在设置里点「免费试用 7 天�
 4. 可选：授予「完全磁盘访问权限」后，邮件附件和其他应用的数据也能搜到。不授予也能正常使用。
 
 有新版本时，Oil Find 会提示你，点「更新并重启」就行。自动检查可以在设置里关掉。
+
+安装包里带有 Pro，不激活也可以一直免费使用，区别见上面的 [Oil Find Pro](#oil-find-pro)。
 
 卸载时退出 Oil Find，删掉「应用程序」里的 Oil Find 和 `~/Library/Application Support/Oil Find` 即可。
 
@@ -130,8 +146,12 @@ scripts/install.sh     # 构建并安装到「应用程序」
 | `Sources/oilfind-cli` | 命令行工具，用来测速和排查问题 |
 | `site` | 官网 [find.oiloil.org](https://find.oiloil.org) |
 
-索引的数据结构和设计约束见 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)，开发约定见 [AGENTS.md](./AGENTS.md)。欢迎提 Issue 和 Pull Request。
+索引的数据结构和设计约束见 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)，开发约定见 [AGENTS.md](./AGENTS.md)。
+
+## 参与贡献
+
+欢迎提 Issue 和 Pull Request。项目只做文件搜索这一件事，匹配、排序、索引、性能和界面方面的改进都欢迎。Pro 功能（外置磁盘、图片和文档内容）在私有仓库里维护，实现这些功能的 Pull Request 不会合并。
 
 ## 许可证
 
-[MIT](./LICENSE)
+本仓库的代码使用 [MIT](./LICENSE) 许可证。Pro 模块不在本仓库里，不开源；Releases 和官网的安装包包含它。

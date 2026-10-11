@@ -86,11 +86,11 @@ export const dict: Record<Language, LandingCopy> = {
     'syn.h': '想找得更准，就多写一点',
     'syn.sub': '点一行，把它填进上面的搜索框。',
     'source.h': '开源，免费',
-    'source.sub': 'MIT 许可证。代码、问题反馈和新版本都在 GitHub 上。',
+    'source.sub': '免费版用 MIT 许可证开源，代码、问题反馈和新版本都在 GitHub 上。Pro 是另外的闭源付费功能，不影响免费版。',
     'source.download': '下载 macOS 版',
     'source.github': '在 GitHub 上查看',
     'note.open.h': '第一次打开', 'note.open': '应用还没有经过苹果公证。双击后如果被拦下，去「系统设置 → 隐私与安全性」，在底部点「仍要打开」。只需要一次。',
-    'note.opensource.h': '开源', 'note.opensource': '代码在 GitHub 上，MIT 许可证。欢迎提问题和改进。',
+    'note.opensource.h': '开源', 'note.opensource': '免费版的代码在 GitHub 上，MIT 许可证，欢迎提问题和改进。Pro 功能不开源。',
     'note.fda.h': '完全磁盘访问', 'note.fda': '可选。不开也能用，只是搜不到邮件和其他应用的数据。',
     'note.privacy.h': '隐私', 'note.privacy': '免费版只索引文件名，不读文件内容；Pro 识别图片、读取文档也全部在这台 Mac 上完成。索引只存在本机。每天检查一次更新，只读取版本信息。',
     'legal.github': 'GitHub', 'legal.download': '下载 macOS 版',
@@ -139,11 +139,11 @@ export const dict: Record<Language, LandingCopy> = {
     'syn.h': 'Write a little more to find exactly that',
     'syn.sub': 'Click a row to try it in the search field above.',
     'source.h': 'Open source and free',
-    'source.sub': 'MIT licensed. Code, issues and releases all live on GitHub.',
+    'source.sub': 'The free version is open source under the MIT license; code, issues and releases all live on GitHub. Pro is a separate closed-source paid add-on and doesn’t change the free version.',
     'source.download': 'Download for macOS',
     'source.github': 'View on GitHub',
     'note.open.h': 'Opening it the first time', 'note.open': 'The app isn’t notarized by Apple yet. If macOS blocks it, go to System Settings → Privacy & Security and click “Open Anyway” at the bottom. Once is enough.',
-    'note.opensource.h': 'Open source', 'note.opensource': 'The code is on GitHub under the MIT license. Issues and pull requests are welcome.',
+    'note.opensource.h': 'Open source', 'note.opensource': 'The free version’s code is on GitHub under the MIT license. Issues and pull requests are welcome. Pro features are not open source.',
     'note.fda.h': 'Full Disk Access', 'note.fda': 'Optional. Without it, Mail and other apps’ data can’t be searched.',
     'note.privacy.h': 'Privacy', 'note.privacy': 'The free version indexes file names only, never file contents, and Pro reads images and documents entirely on your Mac. The index stays on this Mac. Oil Find checks for updates once a day and only reads version info.',
     'legal.github': 'GitHub', 'legal.download': 'Download for macOS',
@@ -239,6 +239,21 @@ export const proCopy = {
     priceUnit: '一次买断', buy: '购买 Pro', download: '下载试用',
     fine: '下载 Oil Find 后，在设置里点「免费试用 7 天」，不用注册，不用绑卡。买断包含以后所有更新，一个授权可以在 3 台 Mac 上使用。支持银行卡和支付宝，在中国大陆还可以用微信支付。14 天内不满意，全额退款。',
     nav: 'Pro', footer: 'Oil Find Pro', recover: '找回授权码', questions: '常见问题',
+    compareLink: '查看免费版和 Pro 的区别',
+    compare: {
+      title: '免费版和 Pro 的区别', feature: '功能', free: '免费版', pro: 'Pro',
+      rows: [
+        ['按文件名搜索：拼音、通配符、正则，按类型、大小、时间筛选', '✓', '✓'],
+        ['实时更新、Quick Look 预览、拖放、全键盘操作', '✓', '✓'],
+        ['排除文件夹和文件类型、应用内更新', '✓', '✓'],
+        ['外置磁盘：插上就建立索引，拔掉后也能搜到', '', '✓'],
+        ['图片内容：截图、照片里的文字与画面', '', '✓'],
+        ['文档内容：PDF、Word、PowerPoint、Excel、Pages、Markdown 等', '', '✓'],
+        ['源码', '开源，MIT', '闭源'],
+        ['价格', '免费', '¥49 一次买断（其他地区 $9.99）'],
+      ],
+      note: 'Pro 和免费版是同一个安装包。不激活也可以一直免费使用；试用结束只停用 Pro 功能。',
+    },
     faq: [
       { q: '免费版会变少吗？', a: '不会。现在免费的功能会一直免费，也一直开源，Pro 只包含新增的功能。' },
       { q: '怎么试用？', a: '在 Oil Find 的设置里找到 Oil Find Pro，点「免费试用 7 天」。' },
@@ -271,6 +286,21 @@ export const proCopy = {
     priceUnit: 'one-time', buy: 'Buy Pro', download: 'Download to Try',
     fine: 'Download Oil Find and click “Start 7-Day Free Trial” in Settings. No account, no card. One payment includes every future update, and one license works on up to 3 Macs. Pay with card or Alipay, plus WeChat Pay in mainland China. Full refund within 14 days, no questions asked.',
     nav: 'Pro', footer: 'Oil Find Pro', recover: 'Recover License Key', questions: 'Questions',
+    compareLink: 'Compare Free and Pro',
+    compare: {
+      title: 'Free vs Pro', feature: 'Feature', free: 'Free', pro: 'Pro',
+      rows: [
+        ['Search by file name: pinyin, wildcards, regex, filters by kind, size and date', '✓', '✓'],
+        ['Live updates, Quick Look, drag and drop, full keyboard control', '✓', '✓'],
+        ['Excluded folders and file types, in-app updates', '✓', '✓'],
+        ['External drives: indexed when plugged in, searchable when unplugged', '', '✓'],
+        ['Image content: text and objects in screenshots and photos', '', '✓'],
+        ['Document content: PDF, Word, PowerPoint, Excel, Pages, Markdown and more', '', '✓'],
+        ['Source code', 'Open source, MIT', 'Closed source'],
+        ['Price', 'Free', '$9.99 once (¥49 in mainland China)'],
+      ],
+      note: 'Pro and the free version are the same download. You can keep using it for free without activating; when a trial ends, only Pro features turn off.',
+    },
     faq: [
       { q: 'Will the free version lose features?', a: "No. Everything that's free today stays free and open source. Pro only adds new features." },
       { q: 'How do I try it?', a: 'In Oil Find\'s settings, find Oil Find Pro and click “Start 7-Day Free Trial”.' },
@@ -287,6 +317,8 @@ export const proCopy = {
   features: { title: string; description: string }[]; privacy: string;
   priceUnit: string; buy: string; download: string; fine: string;
   nav: string; footer: string; recover: string; questions: string;
+  compareLink: string;
+  compare: { title: string; feature: string; free: string; pro: string; rows: [string, string, string][]; note: string };
   faq: { q: string; a: string }[];
 }>;
 

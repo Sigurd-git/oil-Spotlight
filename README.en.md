@@ -19,6 +19,8 @@
 
 Oil Find is a file search tool for macOS that works like Everything on Windows: it keeps its own in-memory index of every file name on your disk instead of relying on Spotlight. Press ⇧⌘F, a search field appears in the middle of the screen, and results update with every keystroke. When files are created, renamed or deleted, the index follows along in real time.
 
+Everything about searching by file name is in the free, open-source version. Searching external drives and the contents of images and documents is part of the paid [Pro](#oil-find-pro) add-on.
+
 ## Why it's fast
 
 - **File names live in one contiguous block of memory.** Hundreds of thousands of names are stored column by column and scanned front to back, with no per-file objects.
@@ -71,15 +73,27 @@ You can also drag results into other apps.
 
 ## Oil Find Pro
 
-The free version stays free and open source. Pro is a closed-source paid add-on: $9.99 once (¥49 in mainland China), with a 7-day free trial.
+The free version is open source and free forever. Pro is a closed-source paid add-on on top of it: pay once, with a 7-day free trial.
 
-- **External drives**: indexed when you plug them in and still searchable after you unplug them. Results show which drive a file is on.
-- **Image content**: search the text and objects in screenshots, photos and snapped receipts.
-- **Document content**: search the text inside PDF, Word, PowerPoint, Excel, Pages, Markdown and plain-text files, including scanned PDFs.
+| | Free | Pro |
+| --- | :---: | :---: |
+| Search by file name: pinyin, wildcards, regex, filters by kind, size and date | ✓ | ✓ |
+| Live updates, Quick Look, drag and drop, full keyboard control | ✓ | ✓ |
+| Excluded folders and file types, in-app updates | ✓ | ✓ |
+| External drives: indexed when plugged in, searchable when unplugged | | ✓ |
+| Image content: text and objects in screenshots and photos | | ✓ |
+| Document content: PDF, Word, PowerPoint, Excel, Pages, Markdown and more | | ✓ |
+| Source code | Open source, MIT | Closed source |
+| Price | Free | $9.99 once (¥49 in mainland China) |
 
-Images and documents are processed on your Mac and never uploaded.
+Pro and the free version are the same download:
 
-The builds on Releases and the website include Pro; click Start 7-Day Free Trial in Settings to try it. Building from source gives you the free version. See [find.oiloil.org/en/pro](https://find.oiloil.org/en/pro).
+- After downloading from Releases or the website, every free feature works right away and never expires, with no activation.
+- To use Pro, open the Oil Find Pro section in Settings and click Start 7-Day Free Trial, or enter a license key. When a trial ends, only Pro features turn off.
+- Building from source gives you the free version, without Pro.
+- Images and documents are processed on your Mac and never uploaded.
+
+Buy it or read more at [find.oiloil.org/en/pro](https://find.oiloil.org/en/pro).
 
 ## Install
 
@@ -89,6 +103,8 @@ The builds on Releases and the website include Pro; click Start 7-Day Free Trial
 4. Optional: grant Full Disk Access to also search mail attachments and other apps' data. Oil Find works fine without it.
 
 When a new version is out, Oil Find tells you; click Update and Restart. You can turn off automatic checks in Settings.
+
+The download includes Pro, but you can keep using Oil Find for free without activating it. See [Oil Find Pro](#oil-find-pro) above for the difference.
 
 To uninstall, quit Oil Find and delete Oil Find from Applications and `~/Library/Application Support/Oil Find`.
 
@@ -130,8 +146,12 @@ Building from source gives you the free version, without Pro. Your own builds ar
 | `Sources/oilfind-cli` | Command-line tool for benchmarks and troubleshooting |
 | `site` | The website, [find.oiloil.org](https://find.oiloil.org/en) |
 
-See [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) for the index design and [AGENTS.md](./AGENTS.md) for development conventions. Issues and pull requests are welcome.
+See [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) for the index design and [AGENTS.md](./AGENTS.md) for development conventions.
+
+## Contributing
+
+Issues and pull requests are welcome. The project does one thing, file search, so improvements to matching, ranking, indexing, performance and the interface are all in scope. Pro features (external drives, image and document content) are maintained in a private repository, and pull requests that implement them won't be merged.
 
 ## License
 
-[MIT](./LICENSE)
+The code in this repository is licensed under [MIT](./LICENSE). The Pro module isn't in this repository and isn't open source; the builds on Releases and the website include it.
