@@ -134,6 +134,19 @@ scripts/install.sh     # 构建并安装到「应用程序」
 
 未配置稳定签名身份时，自己构建的应用使用临时签名；重新构建后可能需要再次授予完全磁盘访问权限和旧剪贴板密钥访问权限。若剪贴板设置显示保存错误，点击「授权保存历史」并手动完成 macOS 钥匙串授权。原加密历史在授权失败时保留，新增内容暂存内存。
 
+需要在本机持续更新时，可配置固定的本地代码签名身份：
+
+```sh
+scripts/create-signing-cert.sh --local
+OILFIND_REQUIRE_STABLE_SIGNING=1 scripts/build-app.sh
+```
+
+私钥保存在登录钥匙串，初始化访问规则仅允许 Apple 的 `/usr/bin/codesign`。本地配置保存在 `~/Library/Application Support/Oil Find Signing/identity.plist`，只包含固定证书指纹及钥匙串路径；不提交到仓库。脚本不添加系统信任根、不改变钥匙串搜索列表，也不放宽剪贴板密钥的访问规则。签名固定 `com.oiloil.find` 和证书 leaf 指纹作为 designated requirement，构建后验证身份；已配置的身份丢失或损坏时停止，`OILFIND_REQUIRE_STABLE_SIGNING=1` 还会在缺少配置时禁止退回临时签名。`OILFIND_LOCAL_SIGNING_CONFIG` 可指定配置文件，`OILFIND_SIGNING_KEYCHAIN` 可用于初始化独立钥匙串。
+
+现代登录钥匙串还按 CDHash 对自签名程序分区；只有固定证书仍不足以让不同构建复用旧密钥授权。本地固定签名构建因此嵌入 `OilFindClipboardKeyService.xpc`，并在配置目录的 `clipboard-key-service/` 缓存已签名的服务。正常更新只复制该服务，不重编或重签；两端 XPC 连接均核验对方的应用标识和实际证书指纹，服务只访问 Oil Find 的固定密钥项目。密钥只通过验证后的本机 XPC 返回内存，不写入文件或日志，历史密文及加密格式保持兼容。
+
+首次使用新签名私钥时，macOS 可能要求本人允许 `codesign` 使用它；首次迁移到密钥服务时也可能需要本人在「授权保存历史」触发的系统弹窗选择「始终允许」。之后普通应用更新沿用同一服务二进制。配置目录另存 `key-service-identity.plist` 身份记录，缓存丢失或与此记录不符时停止，防止自动重建改变 CDHash。服务源码、证书或缓存哈希变化时同样停止，保留旧应用及缓存，需要明确迁移；锁定钥匙串、私钥丢失也需处理。无参数运行 `scripts/create-signing-cert.sh` 在首次创建时额外生成由本人设置密码的加密备份；`--local` 不导出长期私钥备份，完成后仅在钥匙串中保留私钥。已存在身份时仅复用，并说明本次是否已有备份。Git 提交的 SSH/1Password 签名是另一套身份，不受此代码签名配置影响。
+
 提交 PR 前可运行 `scripts/verify-release-app.sh "build/Oil Find.app"` 检查正式产物。`scripts/verify-clipboard-upgrade.sh` 使用隔离钥匙串和临时稳定签名，验证真实加密历史在退出和升级后恢复；不使用或修改用户的剪贴板历史。引擎对照脚本为 `scripts/compare-engine-performance.py`，运行方法和测量边界见 [验收记录](./docs/SPOTLIGHT_VALIDATION.md)。
 
 ## 隐私
