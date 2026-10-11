@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import Combine
 import Carbon
 import OilFindCore
 
@@ -12,11 +13,15 @@ final class WelcomeModel: ObservableObject {
     var onStart: (() -> Void)?
     var onSettings: (() -> Void)?
     var onContentChange: (() -> Void)?
+    private var iconObserver: AnyCancellable?
     init(granted: Bool, snapshot: Bool = false) {
         self.granted = granted
         if !snapshot { SettingsPreferences.register() }
         keyCode = snapshot ? Shortcut.defaultKeyCode : UInt32(clamping: UserDefaults.standard.integer(forKey: "hotKeyCode"))
         modifiers = snapshot ? Shortcut.defaultModifiers : UInt32(clamping: UserDefaults.standard.integer(forKey: "hotKeyModifiers"))
+        iconObserver = NSApplication.shared.publisher(for: \.applicationIconImage).sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
     }
     func openPermissions() { waiting = true; onContentChange?(); Permissions.openSettings() }
     func updateShortcut(_ code: UInt32, _ mask: UInt32) { keyCode = code; modifiers = mask }

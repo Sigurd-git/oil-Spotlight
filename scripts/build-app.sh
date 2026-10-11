@@ -21,6 +21,18 @@ cp "Resources/Info.plist" "$APP_PATH/Contents/Info.plist"
 if [[ -f "Resources/AppIcon.icns" ]]; then
     cp "Resources/AppIcon.icns" "$APP_PATH/Contents/Resources/AppIcon.icns"
 fi
+# Copy only resource bundles declared by the active package, including optional targets.
+swift package describe --type json | python3 -c '
+import json, pathlib, shutil, sys
+package = json.load(sys.stdin)
+binary, resources = map(pathlib.Path, sys.argv[1:])
+for old in resources.glob(package["name"] + "_*.bundle"):
+    shutil.rmtree(old)
+for target in package["targets"]:
+    if target.get("resources"):
+        name = package["name"] + "_" + target["c99name"] + ".bundle"
+        shutil.copytree(binary / name, resources / name)
+' "$BINARY_DIR" "$APP_PATH/Contents/Resources"
 SELF_SIGNED="Oil Find Self-Signed"
 if [[ -n "${OILFIND_SIGN_IDENTITY:-}" ]]; then
     codesign --force --sign "$OILFIND_SIGN_IDENTITY" --identifier com.oiloil.find --options runtime --timestamp "$APP_PATH"

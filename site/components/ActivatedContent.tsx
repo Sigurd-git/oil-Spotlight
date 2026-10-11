@@ -32,7 +32,7 @@ export function Activated({ lang }: { lang: Language }) {
   return <main className={styles.solo}>
     <div className="state" id="loading" hidden={state !== 'loading'}><div className="spin" role="status" aria-label={commonCopy.loadingLabel} /></div>
     <div className="state pop" id="ok" hidden={state !== 'ok'}>
-      <Image className="mark" src="/assets/icon.png" alt="" width={84} height={84} unoptimized />
+      <Image className="mark" src="/assets/pro-icon.png" alt="" width={84} height={84} unoptimized />
       <h1>{t['ok.h']}</h1><p>{t['ok.p']}</p>
       <a className="btn blue" id="activate" href={data ? `oilfind://activate?key=${encodeURIComponent(data.key)}` : '#'}>{t['ok.cta']}</a>
       <div className="keybox"><code id="key">{data?.key ?? ''}</code><button className="btn soft" id="copy" type="button" onClick={copy}>{copied ? t.copied : t['ok.copy']}</button></div>
@@ -40,7 +40,7 @@ export function Activated({ lang }: { lang: Language }) {
       <p className="fine"><span>{t['ok.install']}</span>{' '}<a href="/downloads/Oil-Find.zip">{t['ok.download']}</a></p>
     </div>
     <div className="state pop" id="fail" hidden={state !== 'fail'}>
-      <Image className="mark" src="/assets/icon.png" alt="" width={84} height={84} unoptimized />
+      <Image className="mark" src="/assets/pro-icon.png" alt="" width={84} height={84} unoptimized />
       <h1>{t['fail.h']}</h1><p>{t['fail.p']}</p>
       <a className="btn dark" href={pagePath(lang, 'recover')}>{t['fail.cta']}</a>
       <p className="fine"><a href={pagePath(lang)}>{t['fail.home']}</a></p>
