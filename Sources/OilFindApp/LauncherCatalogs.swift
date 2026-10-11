@@ -189,14 +189,16 @@ final class ApplicationCatalog: ObservableObject {
                 guard let bundle = Bundle(url: url) else { continue }
                 let pathID = url.standardizedFileURL.path
                 guard seen.insert(pathID).inserted else { continue }
-                let name = (bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String)
-                    ?? (bundle.object(forInfoDictionaryKey: "CFBundleName") as? String)
-                    ?? url.deletingPathExtension().lastPathComponent
                 let raw = bundle.infoDictionary ?? [:]
                 let localized = bundle.localizedInfoDictionary ?? [:]
+                let fileName = url.deletingPathExtension().lastPathComponent
+                let name = [bundle.object(forInfoDictionaryKey: "CFBundleDisplayName"),
+                            bundle.object(forInfoDictionaryKey: "CFBundleName"),
+                            raw["CFBundleDisplayName"], raw["CFBundleName"]]
+                    .compactMap { nonemptyName($0 as? String) }.first ?? fileName
                 let localizedStrings = localizedInfoPlistStrings(in: url)
                 let bilingualNames = [raw["CFBundleDisplayName"], localized["CFBundleDisplayName"], raw["CFBundleName"],
-                                      localized["CFBundleName"], url.deletingPathExtension().lastPathComponent].compactMap { $0 as? String }
+                                      localized["CFBundleName"], fileName].compactMap { nonemptyName($0 as? String) }
                     + localizedStrings
                 result.append(LauncherApp(name: name, path: pathID, bundleID: bundle.bundleIdentifier, aliases: bilingualNames))
             }
@@ -205,6 +207,11 @@ final class ApplicationCatalog: ObservableObject {
             let order = $0.name.localizedStandardCompare($1.name)
             return order == .orderedSame ? $0.path < $1.path : order == .orderedAscending
         }
+    }
+
+    private static func nonemptyName(_ value: String?) -> String? {
+        guard let name = value?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else { return nil }
+        return name
     }
 
     private static func localizedInfoPlistStrings(in bundleURL: URL) -> [String] {
@@ -217,7 +224,7 @@ final class ApplicationCatalog: ObservableObject {
                   let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil),
                   let dictionary = plist as? [String: Any] else { continue }
             for key in ["CFBundleDisplayName", "CFBundleName"] {
-                if let value = dictionary[key] as? String, !value.isEmpty {
+                if let value = nonemptyName(dictionary[key] as? String) {
                     values.append(value)
                 }
             }
@@ -229,7 +236,7 @@ final class ApplicationCatalog: ObservableObject {
     private static func withSearchAliases(_ apps: [LauncherApp], launched: [String: Date]) -> [LauncherApp] {
         apps.map { app in
             let name = app.name
-            var aliases = Array(Set(app.aliases.filter { $0 != app.name }))
+            var aliases = Array(Set(app.aliases.compactMap(nonemptyName).filter { $0 != app.name }))
             for source in [app.name] + aliases {
                 let latin = source.applyingTransform(.toLatin, reverse: false)?.applyingTransform(.stripDiacritics, reverse: false)
                 if let latin, latin != source { aliases.append(latin) }
