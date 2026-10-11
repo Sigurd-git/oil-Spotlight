@@ -22,6 +22,7 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
     let applications: ApplicationCatalog
     let clipboard: ClipboardHistory
     let pasteController: ClipboardPasteController
+    var openApplication: (URL) -> Bool = { NSWorkspace.shared.open($0) }
     private let coordinator = SearchCoordinator()
     private var subscriptions: Set<AnyCancellable> = []
     private var userNavigated = false, preserveFirstSelection = false
@@ -489,7 +490,8 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
         if let row = results.selectedLauncherRow {
             switch row {
             case .app(let app):
-                guard FileManager.default.fileExists(atPath: app.path), NSWorkspace.shared.open(URL(fileURLWithPath: app.path)) else { NSSound.beep(); return }
+                guard applications.apps.contains(where: { $0.path == app.path }),
+                      FileManager.default.fileExists(atPath: app.path), openApplication(URL(fileURLWithPath: app.path)) else { NSSound.beep(); return }
                 applications.recordLaunch(app); hidePanel?(); return
             case .setting(let setting):
                 if SystemSettingsCatalog.open(setting) { hidePanel?() } else { NSSound.beep() }; return
