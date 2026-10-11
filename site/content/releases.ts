@@ -10,6 +10,14 @@ export const changelogTitle = { zh: '更新日志', en: 'Changelog' };
 export const releases: Release[] = [
   {
     // Packaging confirms the release date before publishing.
+    version: '1.5.0', date: '2026-10-11',
+    notes: {
+      zh: ['Oil Find Pro 新增文档内容搜索：PDF、Word、PowerPoint、Excel、Pages、Markdown 和纯文本里的文字都能搜到，扫描版 PDF 会识别前 10 页。全部在本机处理。'],
+      en: ['Oil Find Pro now searches inside documents: PDF, Word, PowerPoint, Excel, Pages, Markdown and plain text, plus the first 10 pages of scanned PDFs. Everything is processed on your Mac.'],
+    },
+  },
+  {
+    // Packaging confirms the release date before publishing.
     version: '1.4.2', date: '2026-10-11',
     notes: {
       zh: [

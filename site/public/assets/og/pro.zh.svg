@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
   <title id="title">Oil Find Pro</title>
-  <desc id="desc">Oil Find Pro: external drives and image content search.</desc>
+  <desc id="desc">Oil Find Pro: external drives, image and document content search.</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#f5f7fa"/>
@@ -35,7 +35,7 @@
     <text x="0" y="158" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="19" letter-spacing="1" fill="#8a8f98">Mac 文件搜索工具</text>
     <text x="-4" y="236" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="64" font-weight="700" letter-spacing="-1.5" fill="#1d1d1f">Oil Find Pro</text>
     <text x="0" y="288" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="25" fill="#4a4e57">搜外置硬盘。</text>
-    <text x="0" y="324" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="25" fill="#4a4e57">搜图片里的文字与画面。</text>
+    <text x="0" y="324" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="25" fill="#4a4e57">搜图片和文档里的文字。</text>
     <text x="0" y="368" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#8a8f98">macOS 14+  ·  Apple 芯片  ·  本机识别</text>
   </g>
 

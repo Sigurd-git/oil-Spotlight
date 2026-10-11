@@ -71,7 +71,7 @@ export const GITHUB_URL = 'https://github.com/oil-oil/oil-find';
 export const dict: Record<Language, LandingCopy> = {
   zh: {
     title: "Oil Find：苹果版的 Everything，免费开源的 Mac 文件搜索工具",
-    description: "按 ⇧⌘F，屏幕正中弹出搜索框，每敲一个键不到 10 毫秒出结果。支持拼音首字母、通配符、正则和实时更新，不依赖 Spotlight。免费开源，Pro 还能搜外置硬盘和图片里的文字。",
+    description: "按 ⇧⌘F，屏幕正中弹出搜索框，每敲一个键不到 10 毫秒出结果。支持拼音首字母、通配符、正则和实时更新，不依赖 Spotlight。免费开源，Pro 还能搜外置硬盘，以及图片和文档里的文字。",
     'nav.speed': '速度', 'nav.syntax': '语法', 'nav.github': 'GitHub', 'nav.download': '下载', 'nav.lang': 'EN',
     lead: ['不到 10 毫秒，', '找到 Mac 上的任何文件'],
     placeholder: '在这里试试：wd、png、readme',
@@ -92,7 +92,7 @@ export const dict: Record<Language, LandingCopy> = {
     'note.open.h': '第一次打开', 'note.open': '应用还没有经过苹果公证。双击后如果被拦下，去「系统设置 → 隐私与安全性」，在底部点「仍要打开」。只需要一次。',
     'note.opensource.h': '开源', 'note.opensource': '代码在 GitHub 上，MIT 许可证。欢迎提问题和改进。',
     'note.fda.h': '完全磁盘访问', 'note.fda': '可选。不开也能用，只是搜不到邮件和其他应用的数据。',
-    'note.privacy.h': '隐私', 'note.privacy': '免费版只索引文件名，不读文件内容；Pro 识别图片也全部在这台 Mac 上完成。索引只存在本机。每天检查一次更新，只读取版本信息。',
+    'note.privacy.h': '隐私', 'note.privacy': '免费版只索引文件名，不读文件内容；Pro 识别图片、读取文档也全部在这台 Mac 上完成。索引只存在本机。每天检查一次更新，只读取版本信息。',
     'legal.github': 'GitHub', 'legal.download': '下载 macOS 版',
     chips: ['全部', '文件夹', '应用', '文档', '图片', '代码'],
     hints: [['↩', '打开'], ['↑↓', '选择'], ['Tab', '切换筛选']],
@@ -124,7 +124,7 @@ export const dict: Record<Language, LandingCopy> = {
   },
   en: {
     title: "Oil Find: Everything for Mac, a free and open-source file search app",
-    description: "Press ⇧⌘F and results appear with every keystroke, in under 10 ms. Wildcards, regex, pinyin and live updates, without Spotlight. Free and open source; Pro adds external drives and search inside images.",
+    description: "Press ⇧⌘F and results appear with every keystroke, in under 10 ms. Wildcards, regex, pinyin and live updates, without Spotlight. Free and open source; Pro adds external drives and search inside images and documents.",
     'nav.speed': 'Speed', 'nav.syntax': 'Syntax', 'nav.github': 'GitHub', 'nav.download': 'Download', 'nav.lang': '中文',
     lead: ['Any file on your Mac, ', 'in under 10 ms'],
     placeholder: 'Try it here: wd, png, readme',
@@ -145,7 +145,7 @@ export const dict: Record<Language, LandingCopy> = {
     'note.open.h': 'Opening it the first time', 'note.open': 'The app isn’t notarized by Apple yet. If macOS blocks it, go to System Settings → Privacy & Security and click “Open Anyway” at the bottom. Once is enough.',
     'note.opensource.h': 'Open source', 'note.opensource': 'The code is on GitHub under the MIT license. Issues and pull requests are welcome.',
     'note.fda.h': 'Full Disk Access', 'note.fda': 'Optional. Without it, Mail and other apps’ data can’t be searched.',
-    'note.privacy.h': 'Privacy', 'note.privacy': 'The free version indexes file names only, never file contents, and Pro recognizes images entirely on your Mac. The index stays on this Mac. Oil Find checks for updates once a day and only reads version info.',
+    'note.privacy.h': 'Privacy', 'note.privacy': 'The free version indexes file names only, never file contents, and Pro reads images and documents entirely on your Mac. The index stays on this Mac. Oil Find checks for updates once a day and only reads version info.',
     'legal.github': 'GitHub', 'legal.download': 'Download for macOS',
     chips: ['All', 'Folders', 'Apps', 'Documents', 'Images', 'Code'],
     hints: [['↩', 'Open'], ['↑↓', 'Select'], ['Tab', 'Switch filter']],
@@ -219,28 +219,31 @@ export const commonCopy = {
 export const proCopy = {
   zh: {
     title: 'Oil Find Pro',
-    pageTitle: "Oil Find Pro：搜外置硬盘和图片里的文字",
-    description: "外置硬盘插上就建立索引，拔掉后也能搜到；截图、照片和单据里的文字与画面也能搜，全部在本机识别。¥49 一次买断，可以免费试用 7 天。",
-    subtitle: '免费版一直免费，也一直开源。硬盘多、截图多，再升级 Pro。',
+    pageTitle: "Oil Find Pro：搜外置硬盘，以及图片和文档里的文字",
+    description: "外置硬盘插上就建立索引，拔掉后也能搜到；截图、照片里的文字与画面，PDF、Word 等文档里的文字也能搜，全部在本机处理。¥49 一次买断，可以免费试用 7 天。",
+    subtitle: '免费版一直免费，也一直开源。硬盘多、截图和文档多，再升级 Pro。',
     query: '发票',
     rows: [
       { name: '截屏2026-09-28 14.02.11.png', detail: '图中文字：…开具**发票**的日期… · ~/Desktop', date: '9月28日' },
       { name: '**发票**-9月.pdf', detail: '/Volumes/T7 Shield/报销 · 未连接', date: '9月30日' },
       { name: 'IMG_2043.HEIC', detail: '图中有：收据 · ~/Pictures', date: '9月21日' },
+      { name: '采购合同.pdf', detail: '文档内容（第 3 页）：…含税**发票**于验收后开具… · ~/Documents', date: '9月18日' },
     ],
-    demoDescription: '示例：搜索「发票」时，同时找到截图里的文字、拔掉的移动硬盘上的文件和拍到收据的照片。',
+    demoDescription: '示例：搜索「发票」时，同时找到截图里的文字、拔掉的移动硬盘上的文件、拍到收据的照片和合同正文里的内容。',
     features: [
       { title: '外置磁盘', description: '插上就建立索引，拔掉后也能搜到，结果会标出文件在哪块盘上。' },
-      { title: '图片内容', description: '搜截图、照片和拍下的单据里的文字与画面。全部在这台 Mac 上识别，不会上传。' },
+      { title: '图片内容', description: '搜截图、照片和拍下的单据里的文字与画面。' },
+      { title: '文档内容', description: '搜 PDF、Word、PowerPoint、Excel、Pages、Markdown 和纯文本里的文字，扫描版 PDF 也能识别。' },
     ],
+    privacy: '图片和文档都在这台 Mac 上处理，不会上传。',
     priceUnit: '一次买断', buy: '购买 Pro', download: '下载试用',
     fine: '下载 Oil Find 后，在设置里点「免费试用 7 天」，不用注册，不用绑卡。买断包含以后所有更新，一个授权可以在 3 台 Mac 上使用。支持银行卡和支付宝，在中国大陆还可以用微信支付。14 天内不满意，全额退款。',
     nav: 'Pro', footer: 'Oil Find Pro', recover: '找回授权码', questions: '常见问题',
     faq: [
       { q: '免费版会变少吗？', a: '不会。现在免费的功能会一直免费，也一直开源，Pro 只包含新增的功能。' },
       { q: '怎么试用？', a: '在 Oil Find 的设置里找到 Oil Find Pro，点「免费试用 7 天」。' },
-      { q: '试用结束之后呢？', a: '只停用 Pro 功能，其他照常可用。外置磁盘目录和图片识别结果都留着，激活后立刻恢复。' },
-      { q: '图片会上传吗？', a: '不会。文字和画面都在这台 Mac 上识别，结果也只存在本机。' },
+      { q: '试用结束之后呢？', a: '只停用 Pro 功能，其他照常可用。外置磁盘目录、图片和文档的索引都留着，激活后立刻恢复。' },
+      { q: '图片和文档会上传吗？', a: '不会。识别和读取都在这台 Mac 上完成，结果也只存在本机。' },
       { q: '从源码构建有 Pro 吗？', a: '没有。Pro 不开源，只包含在官网和 GitHub Releases 的安装包里，从源码构建得到的是免费版。' },
       { q: '换了 Mac 怎么办？', a: '一个授权可以同时用在 3 台 Mac 上。在旧 Mac 的设置里停用，就能用到新的 Mac 上。' },
       { q: '授权码找不到了？', a: '用购买时的邮箱[找回授权码](/recover)。' },
@@ -248,28 +251,31 @@ export const proCopy = {
   },
   en: {
     title: 'Oil Find Pro',
-    pageTitle: "Oil Find Pro: search external drives and the text inside images",
-    description: "Drives stay searchable after you unplug them, and you can search the text and objects in screenshots and photos, all recognized on your Mac. $9.99 once, with a 7-day free trial.",
-    subtitle: 'The free version stays free and open source. If you have lots of drives or screenshots, upgrade to Pro.',
+    pageTitle: "Oil Find Pro: search external drives and the text inside images and documents",
+    description: "Drives stay searchable after you unplug them, and you can search the text in your screenshots, photos, PDFs and Office documents, all processed on your Mac. $9.99 once, with a 7-day free trial.",
+    subtitle: 'The free version stays free and open source. If you have lots of drives, screenshots or documents, upgrade to Pro.',
     query: 'invoice',
     rows: [
       { name: 'Screenshot 2026-09-28 at 14.02.11.png', detail: 'Text in image: …**invoice** date… · ~/Desktop', date: 'Sep 28' },
       { name: '**invoice**-september.pdf', detail: '/Volumes/T7 Shield/Expenses · Not connected', date: 'Sep 30' },
       { name: 'IMG_2043.HEIC', detail: 'Contains: receipt · ~/Pictures', date: 'Sep 21' },
+      { name: 'purchase-agreement.pdf', detail: 'In document (page 3): …the **invoice** is issued after acceptance… · ~/Documents', date: 'Sep 18' },
     ],
-    demoDescription: 'Example: searching for “invoice” finds text inside a screenshot, a file on an unplugged drive and a photo of a receipt.',
+    demoDescription: 'Example: searching for “invoice” finds text inside a screenshot, a file on an unplugged drive, a photo of a receipt and a passage inside a contract.',
     features: [
       { title: 'External drives', description: 'Indexed when you plug them in and still searchable after you unplug them. Results show which drive a file is on.' },
-      { title: 'Image content', description: 'Search the text and objects in screenshots, photos and snapped receipts. Everything is recognized on your Mac and never uploaded.' },
+      { title: 'Image content', description: 'Search the text and objects in screenshots, photos and snapped receipts.' },
+      { title: 'Document content', description: 'Search the text inside PDF, Word, PowerPoint, Excel, Pages, Markdown and plain-text files, including scanned PDFs.' },
     ],
+    privacy: 'Images and documents are processed on your Mac and never uploaded.',
     priceUnit: 'one-time', buy: 'Buy Pro', download: 'Download to Try',
     fine: 'Download Oil Find and click “Start 7-Day Free Trial” in Settings. No account, no card. One payment includes every future update, and one license works on up to 3 Macs. Pay with card or Alipay, plus WeChat Pay in mainland China. Full refund within 14 days, no questions asked.',
     nav: 'Pro', footer: 'Oil Find Pro', recover: 'Recover License Key', questions: 'Questions',
     faq: [
       { q: 'Will the free version lose features?', a: "No. Everything that's free today stays free and open source. Pro only adds new features." },
       { q: 'How do I try it?', a: 'In Oil Find\'s settings, find Oil Find Pro and click “Start 7-Day Free Trial”.' },
-      { q: 'What happens when the trial ends?', a: 'Only Pro features turn off; everything else keeps working. Your drive catalogs and image results are kept and come back as soon as you activate.' },
-      { q: 'Are my images uploaded?', a: 'No. Text and objects are recognized on your Mac, and the results stay there.' },
+      { q: 'What happens when the trial ends?', a: 'Only Pro features turn off; everything else keeps working. Your drive catalogs and your image and document indexes are kept and come back as soon as you activate.' },
+      { q: 'Are my images and documents uploaded?', a: 'No. They are recognized and read on your Mac, and the results stay there.' },
       { q: 'Is Pro in the open-source code?', a: 'No. Pro is closed source and ships only in the builds from this site and GitHub Releases. Building from source gives you the free version.' },
       { q: 'Getting a new Mac?', a: 'One license works on up to 3 Macs at once. Deactivate it in Settings on the old Mac to use it on the new one.' },
       { q: 'Lost your license key?', a: '[Recover it](/en/recover) with the email you used at checkout.' },
@@ -278,7 +284,7 @@ export const proCopy = {
 } satisfies Record<Language, {
   title: string; pageTitle: string; description: string; subtitle: string; query: string;
   rows: { name: string; detail: string; date: string }[]; demoDescription: string;
-  features: { title: string; description: string }[];
+  features: { title: string; description: string }[]; privacy: string;
   priceUnit: string; buy: string; download: string; fine: string;
   nav: string; footer: string; recover: string; questions: string;
   faq: { q: string; a: string }[];

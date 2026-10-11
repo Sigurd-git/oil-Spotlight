@@ -38,6 +38,7 @@ export function ProSection({ lang, standalone = false }: { lang: Language; stand
     <div className={styles.features}>
       {t.features.map(feature => <div key={feature.title}><h3>{feature.title}</h3><p>{feature.description}</p></div>)}
     </div>
+    <p className={styles.privacy}>{t.privacy}</p>
     <p className={styles.price}><PriceAmount lang={lang} /><span>{t.priceUnit}</span></p>
     <div className={styles.actions}>
       <a className="btn dark big" href={`/api/checkout?plan=lifetime&lang=${lang}`}>{t.buy}</a>

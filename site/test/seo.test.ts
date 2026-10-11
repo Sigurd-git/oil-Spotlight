@@ -22,7 +22,7 @@ import { siteURL } from '@/lib/metadata';
 import { serializeStructuredData } from '@/lib/structured-data';
 import specification from './fixtures/m24-copy.json';
 
-// Verbatim copy is an explicit M24 contract; this fixture comes from its tables.
+// Verbatim metadata follows the M24 tables with the M27s document-search updates.
 const pages = [
   ['/', zhHome, 'zh', 'home'], ['/en', enHome, 'en', 'home'],
   ['/pro', zhPro, 'zh', 'pro'], ['/en/pro', enPro, 'en', 'pro'],
@@ -88,6 +88,7 @@ describe.each(['zh', 'en'] as const)('rendered structured data (%s)', lang => {
     expect(footerQuestions(lang).slice(0, 2)).toEqual(specification.faq[lang]);
     const { html, schema } = render('home');
     const footer = html.slice(html.indexOf('<footer'));
+    expect(footer).toContain(renderToStaticMarkup(createElement('span', null, specification.privacy[lang])));
     const faq = schema['@graph'].find((entity: { '@type': string }) => entity['@type'] === 'FAQPage');
     expect(faq.mainEntity).toEqual(footerQuestions(lang).map(({ q, a }) => ({ '@type': 'Question', name: q, acceptedAnswer: { '@type': 'Answer', text: a } })));
     for (const item of footerQuestions(lang)) {
@@ -104,6 +105,13 @@ describe.each(['zh', 'en'] as const)('rendered structured data (%s)', lang => {
       acceptedAnswer: { '@type': 'Answer', text: a.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') } })));
     for (const { q } of proCopy[lang].faq) expect(html).toContain(q);
   });
+});
+
+it.each(['zh', 'en'] as const)('uses the specified Pro share tagline and keeps three demo files (%s)', lang => {
+  const svg = readFileSync(new URL(`../public/assets/og/pro.${lang}.svg`, import.meta.url), 'utf8');
+  expect(svg).toContain(`>${specification.proShare[lang]}</text>`);
+  const demo = svg.slice(svg.indexOf('id="search-proof"'));
+  expect(demo.match(/>[^<]+\.(?:png|pdf|HEIC)<\/text>/g)).toHaveLength(3);
 });
 
 it('keeps script-closing content inert and preserves JSON data', () => {

@@ -74,7 +74,10 @@ You can also drag results into other apps.
 The free version stays free and open source. Pro is a closed-source paid add-on: $9.99 once (¥49 in mainland China), with a 7-day free trial.
 
 - **External drives**: indexed when you plug them in and still searchable after you unplug them. Results show which drive a file is on.
-- **Image content**: search the text and objects in screenshots, photos and snapped receipts. Everything is recognized on your Mac and never uploaded.
+- **Image content**: search the text and objects in screenshots, photos and snapped receipts.
+- **Document content**: search the text inside PDF, Word, PowerPoint, Excel, Pages, Markdown and plain-text files, including scanned PDFs.
+
+Images and documents are processed on your Mac and never uploaded.
 
 The builds on Releases and the website include Pro; click Start 7-Day Free Trial in Settings to try it. Building from source gives you the free version. See [find.oiloil.org/en/pro](https://find.oiloil.org/en/pro).
 
@@ -105,7 +108,7 @@ Building from source gives you the free version, without Pro. Your own builds ar
 
 ## Privacy
 
-- Oil Find reads file names, sizes and modification dates only, never file contents. With Pro image recognition on, it reads images on your Mac to recognize text and objects, and the results stay on your Mac too.
+- Oil Find reads file names, sizes and modification dates only, never file contents. With Pro image or document content search on, it reads those files on your Mac to extract their text, and the results stay on your Mac too.
 - The index stays on your Mac in `~/Library/Application Support/Oil Find/`.
 - A daily update check fetches one version file and sends no device or usage data. You can turn it off in Settings.
 - With Pro, the license is verified online once a day. Only the license key, a device identifier and the device name are sent.
@@ -114,7 +117,7 @@ Building from source gives you the free version, without Pro. Your own builds ar
 
 - Apple silicon and macOS 14 or later only.
 - Network volumes aren't supported; external drives need Pro.
-- File names only, not document contents; Pro also searches the text and objects in images.
+- The free version searches file names only; Pro also searches the text inside images and documents.
 
 ## Project layout
 

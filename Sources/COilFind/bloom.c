@@ -53,12 +53,12 @@ int sift_contains_unicode_folded(const uint8_t *text, size_t length, const uint8
         uint32_t first = lower_scalar(scalar(text, length, &next));
         size_t n = 0;
         if (first == lower_scalar(scalar(needle, needle_length, &n))) {
+            if (n == needle_length) return 1;
             size_t t = next;
             while (n < needle_length && t < length) {
                 if (lower_scalar(scalar(text, length, &t)) != lower_scalar(scalar(needle, needle_length, &n))) break;
                 if (n == needle_length) return 1;
             }
-            if (n == needle_length && needle_length <= next - start) return 1;
         }
         start = next;
     }

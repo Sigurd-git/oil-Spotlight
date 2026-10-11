@@ -7,11 +7,12 @@ import ZhPro, { metadata as zhMetadata } from '@/app/(zh)/pro/page';
 import EnPro, { metadata as enMetadata } from '@/app/en/pro/page';
 import { TopBar } from '@/components/TopBar';
 import { pagePath, proCopy, type Language } from '@/content/dict';
+import { ICONS } from '@/content/icons';
 import { GET } from '@/app/api/price/route';
 import { loadPriceDisplay } from '@/lib/price';
 import specification from './fixtures/m23-copy.json';
 
-// Exact copy is an explicit M23 contract; this fixture comes from the specification tables.
+// Exact copy follows the M23 tables with the M27s document-search updates.
 const plain = (s: string) => s.replace(/\*\*/g, '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
 function text(html: string) {
   return html.replace(/<[^>]+>/g, '').replace(/&#x27;|&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, '&');
@@ -29,6 +30,12 @@ describe.each(['zh', 'en'] as const)('Pro introduction (%s)', lang => {
     }
     expect(section).toContain('aria-hidden="true"');
     expect(section).toContain(`<mark>${proCopy[lang].query}</mark>`);
+    expect(section.match(/<h3>/g)).toHaveLength(3);
+    const documentRow = proCopy[lang].rows[3];
+    expect(rendered).toContain(documentRow.name);
+    const documentIconStart = section.lastIndexOf('<svg', section.indexOf(documentRow.name));
+    expect(section.slice(documentIconStart, section.indexOf('</svg>', documentIconStart))).toContain(ICONS.file);
+    expect(section.match(/<mark>/g)).toHaveLength(3);
     expect(section).toContain(`/api/checkout?plan=lifetime&amp;lang=${lang}`);
     expect(section).toContain('href="/downloads/Oil-Find.zip"');
     expect(html).toContain(`href="${pagePath(lang, 'pro')}"`);
