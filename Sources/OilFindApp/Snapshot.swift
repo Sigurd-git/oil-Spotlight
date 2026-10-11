@@ -24,7 +24,7 @@ enum Snapshot {
         defer { L10n.snapshotChinese = nil }
         appExtension?.languageDidChange(chinese: L10n.chinese)
         let state = values["--state"] ?? "results"
-        let launcherStates: Set<String> = ["unified", "clipboard", "clipboard-files", "system-settings", "calculator"]
+        let launcherStates: Set<String> = ["unified", "clipboard", "clipboard-files", "system-settings", "calculator", "currency", "currency-loading", "currency-unavailable"]
         let settingsStates: Set<String> = ["settings", "clipboard-permission", "shortcut-conflict"]
         guard launcherStates.contains(state) || settingsStates.contains(state) || ["results", "recent", "empty", "indexing", "welcome", "toast", "menu", "no-access", "diagnostic", "syntax", "update-available", "update-downloading", "update-failed", "update-latest"].contains(state) else { throw SnapshotError.failed("Invalid state: \(state)") }
         let settingsSection: SettingsSection?
@@ -222,6 +222,14 @@ enum Snapshot {
             let raw = query ?? "150 × 20%"
             guard let answer = LauncherTools.evaluate(raw) else { throw SnapshotError.failed("Invalid calculator snapshot expression: \(raw)") }
             return (SearchSnapshot(raw: raw, scope: .all, leading: [.answer(answer)], trailing: [.web(raw, WebSearchEngine.duckDuckGo.url(for: raw))]), [])
+        case "currency", "currency-loading", "currency-unavailable":
+            let raw = query ?? "100 usd in to rmb"
+            guard let request = CurrencyQuery.parse(raw) else { throw SnapshotError.failed("Invalid currency snapshot expression: \(raw)") }
+            let lookup: CurrencyLookup
+            if state == "currency-loading" { lookup = .loading }
+            else if state == "currency-unavailable" { lookup = .unavailable }
+            else { lookup = CurrencyRateProvider(snapshot: true).lookup(request) }
+            return (SearchSnapshot(raw: raw, scope: .all, leading: [.currency(request, lookup)]), [])
         case "unified":
             let raw = query ?? (L10n.chinese ? "显示" : "display")
             let apps = [LauncherApp(name: "Display Studio", path: "/Users/demo/Applications/Display Studio.app", aliases: ["显示"]),

@@ -2,7 +2,7 @@
 
 import { useMemo, useState, type FormEvent } from 'react';
 import { dict, type Language } from '@/content/dict';
-import { demoFiles, match, parse } from '@/content/demo';
+import { demoFiles, match, parse, shouldClearQueryOnShortcut, syntheticCurrencyResult } from '@/content/demo';
 import styles from './ScopeDemo.module.css';
 
 const ENGINE_URLS = {
@@ -13,9 +13,10 @@ const ENGINE_URLS = {
 
 export function ScopeDemo({ lang }: { lang: Language }) {
   const t = dict[lang];
-  const [scope, setScope] = useState(0), [query, setQuery] = useState('readme');
-  const [engine, setEngine] = useState<keyof typeof ENGINE_URLS>('DuckDuckGo');
+  const [scope, setScope] = useState(0), [query, setQuery] = useState('readme'), [calcQuery, setCalcQuery] = useState('12 × 8 + 5');
+  const [engine, setEngine] = useState<keyof typeof ENGINE_URLS>('DuckDuckGo'), [copyMessage, setCopyMessage] = useState('');
   const files = useMemo(() => demoFiles(lang).filter(file => match(file, parse(query), null)), [lang, query]);
+  const currency = syntheticCurrencyResult(calcQuery);
 
   function submitSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -38,7 +39,23 @@ export function ScopeDemo({ lang }: { lang: Language }) {
         </>}
         {scope === 3 && <ul className={styles.items}>{t.scopeSettings.map(item => <li key={item}><b>{item.split(' · ')[0]}</b><span>{item.split(' · ')[1]}</span></li>)}</ul>}
         {scope === 4 && <><ul className={styles.items}>{t.scopeClips.map(item => <li key={item}><b>{item}</b><span>{t.scopeSampleTag}</span></li>)}</ul><p className={styles.note}>{t.scopeClipboardNote}</p></>}
-        {scope === 5 && <><label className={styles.field}>{t.scopeCalcLabel}<input value="12 × 8 + 5" readOnly /></label><p className={styles.result}>{t.scopeCalcResult}<b>101</b></p><p className={styles.note}>{t.scopeOfflineNote}</p></>}
+        {scope === 5 && <>
+          <label className={styles.field}>{t.scopeCalcLabel}<input value={calcQuery} onChange={event => { setCalcQuery(event.target.value); setCopyMessage(''); }} onKeyDown={async event => {
+            if (shouldClearQueryOnShortcut(event.nativeEvent)) { event.preventDefault(); setCalcQuery(''); setCopyMessage(''); return; }
+            if (event.nativeEvent.isComposing || (event.key !== 'Enter' && !(event.metaKey && event.key.toLowerCase() === 'c'))) return;
+            if (event.key.toLowerCase() === 'c' && event.currentTarget.selectionStart !== event.currentTarget.selectionEnd) return;
+            if (!currency) return;
+            event.preventDefault();
+            try { await navigator.clipboard.writeText(currency.value); setCopyMessage(t.scopeDemoCopied); }
+            catch { setCopyMessage(t.scopeDemoCopyUnavailable); }
+          }} /></label>
+          {currency
+            ? <><p className={styles.result}>{t.scopeDemoCurrencyResult}<b>{currency.value}</b></p><p className={styles.note}>{t.scopeDemoCurrencyRate(currency.rateDate)} {t.scopeDemoCopyHint}</p>{copyMessage && <p className={styles.note} role="status">{copyMessage}</p>}</>
+            : calcQuery.trim() === '12 × 8 + 5'
+              ? <p className={styles.result}>{t.scopeCalcResult}<b>101</b></p>
+              : <p className={styles.note}>{t.scopeDemoUnsupported}</p>}
+          <p className={styles.note}>{t.scopeOfflineNote}</p>
+        </>}
         {scope === 6 && <>
           <form className={styles.form} onSubmit={submitSearch}>
             <label className={styles.field}>{t.scopeWebLabel}<input value={query} onChange={event => setQuery(event.target.value)} /></label>

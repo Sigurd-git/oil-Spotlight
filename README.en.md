@@ -25,6 +25,8 @@ Dependency folders, app and package internals, Library and system folders are ex
 
 The panel offers All, Apps, Files, Settings and Clipboard scopes, switchable with ⌘0…⌘4. Use ⌥⌘1…9 for file-type filters. File results retain Quick Look, path copying, Finder reveal and drag-and-drop.
 
+Press ⌘⌫ to clear the entire search field. By default, a query expires after the panel has been closed for 1 minute and clears on the next opening. Brief app switches keep it; it never clears while you are typing. In Settings → Search → Clear Search Query, choose immediately after closing, 1 minute, 5 minutes, 15 minutes, or always keep. Scope and filter preferences remain selected.
+
 ![Unified search using synthetic examples](./assets/readme/launcher-en.png)
 
 Clipboard history is off by default and starts recording only after you first enable it. It records text, links and path references to local files and folders. Upgrades preserve your enabled state and preferences, and existing text history remains compatible. A group of files copied in Finder becomes one history entry; the list shows names and a count, and you can search by file name or path.
@@ -38,6 +40,10 @@ If Keychain access fails, the original encrypted file is preserved, new entries 
 ![Clipboard history using synthetic examples](./assets/readme/clipboard-en.png)
 
 Expression calculations and unit conversions work offline. Enter a URL to open it. DuckDuckGo is the default web search engine, with Google and Bing as options. Choose a web result for a regular query or enter `web:` to request web search explicitly; the browser opens only when you activate that result. Typing does not send queries to a search engine.
+
+In All, enter `100 usd in to rmb`, `100 USD to CNY`, or `100美元转人民币` to convert currencies; RMB is an alias for CNY. Results use [ECB daily reference rates through Frankfurter](https://frankfurter.dev/), show the rate date, and can be copied with Return or ⌘C. The first complete currency expression asynchronously fetches a fixed currency list; amounts and full queries remain on this Mac. Ordinary file searches, calculations, and unit conversions do not request exchange rates. Public rates are cached locally for 24 hours and refreshed in the background when expired. Cached results are labeled when the service is unavailable; without usable rates, press Return to retry. Reference rates exclude bank fees and live trading prices. Currency Conversion can be disabled in Settings → Search.
+
+![Currency conversion using synthetic rates and an example date](./assets/readme/currency-en.png)
 
 ## Search syntax
 
@@ -71,7 +77,7 @@ You can paste paths straight from a terminal or editor: `file://` URLs, quoted o
 | <kbd>⌘</kbd><kbd>Y</kbd> | Files: Quick Look; clipboard: multiline preview |
 | <kbd>⌘</kbd><kbd>C</kbd> | Copy selected query text first, otherwise the result's path, text or URL; file clipboard entries restore the whole group as file URLs |
 | <kbd>⌥</kbd><kbd>⌘</kbd><kbd>C</kbd> | Files: copy name |
-| <kbd>⌘</kbd><kbd>⌫</kbd> | Files: move to Trash; clipboard: delete the history entry |
+| <kbd>⌘</kbd><kbd>⌫</kbd> | Clear the entire search field; use the context menu to delete files or clipboard entries |
 | <kbd>Tab</kbd> | Cycle file types in the Files scope |
 | <kbd>⌘</kbd><kbd>/</kbd> | Syntax reference |
 
@@ -138,6 +144,7 @@ Before submitting a PR, run `scripts/verify-release-app.sh "build/Oil Find.app"`
 - Clipboard history is off by default. When enabled, it saves text, links and local file/folder path references, encrypted locally and protected with Keychain. File references store paths without reading contents or backing up files. You can pause, clear or exclude source apps; upgrades preserve your enabled state and preferences.
 - The source app is estimated from the frontmost app at copy time, so not every sensitive item can be identified. If the key is unavailable or history is damaged, the original file is preserved, an error is shown and new entries stay in memory.
 - Web search defaults to DuckDuckGo, with Google and Bing as options. A normal query can offer a web-search result, or use `web:` to request one explicitly. The search engine opens only when you execute that result; typing does not send queries.
+- Currency Conversion can be turned off in Search settings. A complete currency expression asynchronously requests a fixed list of public ECB rates through Frankfurter, without amounts, full queries, clipboard data, or file contents. Its cache stores only public rates, source dates, and retrieval time; results show the reference date and cache status.
 - Fork builds do not connect to the upstream official app-update service. Pro periodically verifies its license online, sending only the license key, device identifier and device name.
 
 ## Current limits

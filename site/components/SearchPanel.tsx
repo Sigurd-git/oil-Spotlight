@@ -2,7 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { commonCopy, dict, type Language } from '@/content/dict';
-import { demoFiles, KINDS, match, parse, RUN } from '@/content/demo';
+import { demoFiles, KINDS, match, parse, RUN, shouldClearQueryOnShortcut } from '@/content/demo';
 import { Icon } from './Icon';
 import { useSearchActions } from './SearchContext';
 import { isShortcut } from './motion';
@@ -147,7 +147,8 @@ export function SearchPanel({ lang }: { lang: Language }) {
         onKeyDown={event => {
           if (event.nativeEvent.isComposing) return;
           stopReplay();
-          if (event.key === 'ArrowDown') { event.preventDefault(); select(selected + 1); }
+          if (shouldClearQueryOnShortcut(event.nativeEvent)) { event.preventDefault(); search(''); }
+          else if (event.key === 'ArrowDown') { event.preventDefault(); select(selected + 1); }
           else if (event.key === 'ArrowUp') { event.preventDefault(); select(selected - 1); }
           else if (event.key === 'Tab') { event.preventDefault(); setFilter(chip + (event.shiftKey ? -1 : 1)); }
           else if (event.key === 'Enter') { event.preventDefault(); open(); }

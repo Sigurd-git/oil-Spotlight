@@ -75,6 +75,12 @@ interface LandingCopy {
   scopeClipboardNote: string;
   scopeCalcLabel: string;
   scopeCalcResult: string;
+  scopeDemoCurrencyResult: string;
+  scopeDemoCurrencyRate: (date: string) => string;
+  scopeDemoCopyHint: string;
+  scopeDemoCopied: string;
+  scopeDemoCopyUnavailable: string;
+  scopeDemoUnsupported: string;
   scopeWebLabel: string;
   scopeEngineLabel: string;
   scopeSubmit: string;
@@ -98,13 +104,13 @@ export const dict: Record<Language, LandingCopy> = {
     downloadNote: 'macOS 14 及以上 · Apple 芯片',
     openSource: '免费开源',
     'speed.h': '从文件到计算，按需切换',
-    'speed.sub': '文件和应用留在搜索面板里；剪贴板记录默认关闭；计算离线完成；网页搜索由你明确提交。',
+    'speed.sub': '文件和应用留在搜索面板里；剪贴板记录默认关闭；计算与单位换算离线完成。汇率换算可单独关闭，完整表达式只请求固定的 ECB 公开汇率，缓存 24 小时；结果显示汇率日期与缓存状态。网页搜索由你明确提交。',
     'speed.frame': '',
-    'stat.scan': '文件名索引', 'stat.mem': '剪贴板', 'stat.live': '计算与网页搜索',
+    'stat.scan': '文件名索引', 'stat.mem': '剪贴板', 'stat.live': '计算、汇率与网页搜索',
     'speed.fine': '下面的范围演示只使用网页内置的合成样例，不会读取你的文件、剪贴板或搜索历史。',
     'syn.h': '想找得更准，就多写一点',
     'syn.sub': '点一行，把它填进上面的搜索框。',
-    'note.privacy.h': '隐私', 'note.privacy': '文件引擎只读取名称、大小和修改时间。剪贴板记录默认关闭，启用后保存文本、链接和本地文件/文件夹路径引用，在本机加密并由钥匙串保护；文件只保存路径，不备份或读取正文。敏感、临时、自动生成标记和来源应用排除继续生效，图片内容和尚未生成的文件承诺不采集。网页搜索只在你选择并提交后打开；fork 构建不连接上游官方应用更新服务。',
+    'note.privacy.h': '隐私', 'note.privacy': '文件引擎只读取名称、大小和修改时间。剪贴板记录默认关闭，启用后保存文本、链接和本地文件/文件夹路径引用，在本机加密并由钥匙串保护；文件只保存路径，不备份或读取正文。敏感、临时、自动生成标记和来源应用排除继续生效，图片内容和尚未生成的文件承诺不采集。汇率来源只接收固定的公开币种列表，不发送金额或完整查询。网页搜索只在你选择并提交后打开；fork 构建不连接上游官方应用更新服务。',
     'source.download': '下载 macOS 版',
     'source.github': '在 GitHub 上查看',
     'note.open.h': '第一次打开', 'note.open': '应用还没有经过苹果公证。双击后如果被拦下，去「系统设置 → 隐私与安全性」，在底部点「仍要打开」。只需要一次。',
@@ -125,7 +131,7 @@ export const dict: Record<Language, LandingCopy> = {
     today: t => `今天 ${t}`, yesterday: t => `昨天 ${t}`, date: (m, d) => `${m}月${d}日`,
     folder: '文件夹', app: '应用', bytes: n => `${n} 字节`,
     scopeTitle: '选一个范围试试',
-    scopeSubtitle: '此处内容是合成演示。网站不会读取本机文件或剪贴板。',
+    scopeSubtitle: '应用搜索词默认在面板关闭 1 分钟后过期，可在设置中调整。此处是合成演示，网站不会读取本机文件或剪贴板。',
     scopeTabs: ['全部', '应用', '文件', '设置', '剪贴板', '计算示例', '网页搜索'],
     scopeAllItems: ['README.md · ~/Documents', '日历 · 日程与会议', '剪贴板示例 · 文本与链接', '12 × 8 + 5 · 离线结果 101'],
     scopeKeyboard: '⌘0…⌘4 切换范围 · ⌥⌘1…9 选择文件类型',
@@ -135,16 +141,19 @@ export const dict: Record<Language, LandingCopy> = {
     scopeSampleTag: '合成示例',
     scopeClipboardNote: '应用中的剪贴板历史默认关闭，升级保留已有开启状态和偏好，并兼容已有文本历史。启用后记录文本、链接和本地文件/文件夹路径引用；一组多文件显示名称和数量，可按名称或路径搜索。选中文件历史项按 ⌘C 恢复文件 URL，回 Finder 按 ⌘V 复制文件；Return 检查权限与焦点后直接粘贴，检查失败仅复制并提示。文件移动或删除后无法恢复；整组路径检查失败会保留当前剪贴板，并提示重新复制。可暂停、清空或排除来源应用。',
     scopeCalcLabel: '输入算式或换算示例', scopeCalcResult: '离线结果',
+    scopeDemoCurrencyResult: '合成演示结果', scopeDemoCurrencyRate: (date: string) => `演示汇率：1 USD = 7.00 CNY · 日期：${date}。固定示例值，不联网，也不是当前汇率。RMB 对应 CNY。`,
+    scopeDemoCopyHint: '按 Return 或 ⌘C 复制演示结果。', scopeDemoCopied: '已复制合成结果。', scopeDemoCopyUnavailable: '浏览器未允许复制；请手动选择结果。',
+    scopeDemoUnsupported: '此处只演示 100 USD 转 CNY；其他货币表达式没有合成结果。真实应用可按设置启用汇率换算。',
     scopeWebLabel: '搜索词', scopeEngineLabel: '搜索引擎', scopeSubmit: '提交并打开搜索',
     scopeUrlLabel: '网址会直接打开', scopeUrlOpen: '打开示例网址',
     scopeEngines: ['DuckDuckGo', 'Google', 'Bing'],
-    scopeOfflineNote: '计算与单位换算在本地完成。网页搜索不会随键入发送内容。',
+    scopeOfflineNote: '普通计算与单位换算离线完成；应用汇率换算是单独开关。此网站演示不联网。网页搜索不会随键入发送内容。',
     home: [
       { icon: 'download', name: '下载 Oil Find', path: '免费开源。macOS 14 及以上，Apple 芯片', meta: updateManifest.version, meta2: '1.5 MB', act: { href: '/downloads/Oil-Find.zip' } },
       { icon: 'timer', name: '一个面板，多种搜索范围', path: '文件、应用、设置、剪贴板、离线计算和网页搜索', meta: '范围', act: { scroll: 'scopes' } },
       { icon: 'pinyin', name: '拼音也能搜', path: '输入 <code>wd</code> 找到「文档」，输入 <code>xmwd</code> 找到「项目文档」', meta: '中文', act: { fill: 'wd' } },
       { icon: 'live', name: '剪贴板由你决定', path: '默认关闭；文本、链接和文件路径引用在本机加密保存，可暂停或清空', meta: '选择启用', act: { scroll: 'scopes' } },
-      { icon: 'lock', name: '计算离线完成', path: '输入网址直接打开；网页搜索在你提交后才会打开', meta: '本地优先', act: { scroll: 'scopes' } },
+      { icon: 'lock', name: '计算离线，汇率可选', path: '普通计算与单位换算离线运行；汇率换算可单独关闭', meta: '本地优先', act: { scroll: 'scopes' } },
       { icon: 'syntax', name: '查询语法', path: '<code>*.pdf</code>　<code>ext:png</code>　<code>!node_modules</code>　<code>dm:today</code>　<code>~/Desktop/</code>', meta: '进阶', act: { scroll: 'syntax' } },
       { icon: 'file', name: '开源', path: 'MIT 许可证，代码在 GitHub 上', meta: 'GitHub', act: { href: GITHUB_URL } },
     ],
@@ -167,13 +176,13 @@ export const dict: Record<Language, LandingCopy> = {
     downloadNote: 'macOS 14 or later · Apple silicon',
     openSource: 'Free and open source',
     'speed.h': 'Switch from finding to doing',
-    'speed.sub': 'Search files and apps in one panel. Clipboard capture is opt-in, calculations work offline, and web searches open only when you submit.',
+    'speed.sub': 'Search files and apps in one panel. Clipboard capture is opt-in; calculations and unit conversions work offline. Currency conversion is a separate setting: complete expressions request fixed public ECB rates, cached for 24 hours, and results show the rate date and cache status. Web searches open only when you submit.',
     'speed.frame': '',
-    'stat.scan': 'File-name index', 'stat.mem': 'Clipboard', 'stat.live': 'Calculations and web search',
+    'stat.scan': 'File-name index', 'stat.mem': 'Clipboard', 'stat.live': 'Calculation, currency and web search',
     'speed.fine': 'The scope demo below uses built-in synthetic examples only. It never reads your files, clipboard or search history.',
     'syn.h': 'Write a little more to find exactly that',
     'syn.sub': 'Click a row to try it in the search field above.',
-    'note.privacy.h': 'Privacy', 'note.privacy': 'The file engine reads names, sizes and modification dates only. Clipboard history is off by default; when enabled, it saves text, links and path references to local files and folders, encrypted locally and protected with Keychain. File references store paths without backing up files or reading contents. Concealed, transient and autogenerated markers and source app exclusions still apply; image content and ungenerated file promises are not captured. Web search opens only after you choose and submit; fork builds do not connect to the upstream official app-update service.',
+    'note.privacy.h': 'Privacy', 'note.privacy': 'The file engine reads names, sizes and modification dates only. Clipboard history is off by default; when enabled, it saves text, links and path references to local files and folders, encrypted locally and protected with Keychain. File references store paths without backing up files or reading contents. Concealed, transient and autogenerated markers and source app exclusions still apply; image content and ungenerated file promises are not captured. Currency requests contain only a fixed list of public currency pairs, never the amount or full query. Web search opens only after you choose and submit; fork builds do not connect to the upstream official app-update service.',
     'source.download': 'Download for macOS',
     'source.github': 'View on GitHub',
     'note.open.h': 'Opening it the first time', 'note.open': 'The app isn’t notarized by Apple yet. If macOS blocks it, go to System Settings → Privacy & Security and click “Open Anyway” at the bottom. Once is enough.',
@@ -195,7 +204,7 @@ export const dict: Record<Language, LandingCopy> = {
     date: (m, d) => `${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][m - 1]} ${d}`,
     folder: 'Folder', app: 'App', bytes: n => `${n} bytes`,
     scopeTitle: 'Choose a scope to try',
-    scopeSubtitle: 'This is a synthetic demo. The site never reads local files or the clipboard.',
+    scopeSubtitle: 'App queries expire after the panel closes for 1 minute, adjustable in Settings. This is a synthetic demo; the site never reads local files or the clipboard.',
     scopeTabs: ['All', 'Apps', 'Files', 'Settings', 'Clipboard', 'Calculate demo', 'Web search'],
     scopeAllItems: ['README.md · ~/Documents', 'Calendar · Events and meetings', 'Clipboard sample · Text and link', '12 × 8 + 5 · Offline result 101'],
     scopeKeyboard: '⌘0…⌘4 switch scopes · ⌥⌘1…9 choose file type',
@@ -205,16 +214,19 @@ export const dict: Record<Language, LandingCopy> = {
     scopeSampleTag: 'Synthetic sample',
     scopeClipboardNote: 'Clipboard history in the app is off by default. Upgrades preserve your enabled state and preferences, and existing text history stays compatible. When enabled, it records text, links and local file/folder path references. A file group shows names and a count; search by name or path. Select a file history entry and press ⌘C to restore file URLs, then ⌘V in Finder to copy the files. Return pastes after permission and focus checks; a failed check only copies and tells you. Moved or deleted files cannot be recovered; if any path in the group is missing, the current clipboard is preserved and you are asked to copy the files again. Pause, clear or exclude source apps any time.',
     scopeCalcLabel: 'Enter an expression or conversion', scopeCalcResult: 'Offline result',
+    scopeDemoCurrencyResult: 'Synthetic demo result', scopeDemoCurrencyRate: (date: string) => `Synthetic demo rate: 1 USD = 7.00 CNY · Date: ${date}. Fixed example data; no network request and not a current rate. RMB maps to CNY.`,
+    scopeDemoCopyHint: 'Press Return or ⌘C to copy the demo result.', scopeDemoCopied: 'Synthetic result copied.', scopeDemoCopyUnavailable: 'The browser did not allow copying; select the result manually.',
+    scopeDemoUnsupported: 'This demo only shows 100 USD to CNY; other currency expressions have no synthetic result. The app can enable currency conversion in settings.',
     scopeWebLabel: 'Search query', scopeEngineLabel: 'Search engine', scopeSubmit: 'Submit and open search',
     scopeUrlLabel: 'A URL opens directly', scopeUrlOpen: 'Open example URL',
     scopeEngines: ['DuckDuckGo', 'Google', 'Bing'],
-    scopeOfflineNote: 'Calculations and unit conversions run locally. Web search does not send text while you type.',
+    scopeOfflineNote: 'Ordinary calculations and unit conversions run offline; currency conversion is a separate app setting. This website demo makes no network requests. Web search does not send text while you type.',
     home: [
       { icon: 'download', name: 'Download Oil Find', path: 'Free and open source. macOS 14 or later, Apple silicon', meta: updateManifest.version, meta2: '1.5 MB', act: { href: '/downloads/Oil-Find.zip' } },
       { icon: 'timer', name: 'One panel, several search scopes', path: 'Files, apps, settings, clipboard, offline calculations and web search', meta: 'Scopes', act: { scroll: 'scopes' } },
       { icon: 'pinyin', name: 'Pinyin search', path: 'Type <code>wd</code> to find 文档, <code>xmwd</code> to find 项目文档', meta: 'Chinese', act: { fill: 'wd' } },
       { icon: 'live', name: 'Clipboard on your terms', path: 'Off by default; text, links and file path references are encrypted locally, with pause and clear controls', meta: 'Opt in', act: { scroll: 'scopes' } },
-      { icon: 'lock', name: 'Calculations stay offline', path: 'URLs open directly; web searches open only after you submit', meta: 'Local first', act: { scroll: 'scopes' } },
+      { icon: 'lock', name: 'Offline calculations, optional currency rates', path: 'Ordinary calculations and unit conversions run offline; currency conversion can be turned off separately', meta: 'Local first', act: { scroll: 'scopes' } },
       { icon: 'syntax', name: 'Query syntax', path: '<code>*.pdf</code>　<code>ext:png</code>　<code>!node_modules</code>　<code>dm:today</code>　<code>~/Desktop/</code>', meta: 'Advanced', act: { scroll: 'syntax' } },
       { icon: 'file', name: 'Open source', path: 'MIT licensed. The code is on GitHub', meta: 'GitHub', act: { href: GITHUB_URL } },
     ],

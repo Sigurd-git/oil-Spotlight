@@ -5,17 +5,21 @@ import OilFindCore
 
 final class LauncherSettingsTests: XCTestCase {
     func testSnapshotSettingsDoNotPersistLauncherOrIndexChoices() throws {
-        let keys = ["calculatorEnabled", "webSearchEnabled", "webSearchEngine", "pinyinEnabled",
+        let keys = ["calculatorEnabled", "currencyEnabled", "searchQueryRetention", "webSearchEnabled", "webSearchEngine", "pinyinEnabled",
                     "indexDependencyDirs", "indexPackageContents", "indexUserLibrary", "indexSystemDirs"]
         let defaults = UserDefaults.standard
         let before = keys.map { defaults.object(forKey: $0) as? NSObject }
         let model = SettingsModel(snapshot: true)
         XCTAssertTrue(model.calculatorEnabled)
+        XCTAssertTrue(model.currencyEnabled)
+        XCTAssertEqual(model.searchQueryRetention, .minute)
         XCTAssertTrue(model.webSearchEnabled)
         XCTAssertEqual(model.webSearchEngine, .duckDuckGo)
         XCTAssertEqual(model.keyCode, Shortcut.defaultCmdSpace.keyCode)
         XCTAssertEqual(model.modifiers, Shortcut.defaultCmdSpace.modifiers)
         model.setCalculator(false)
+        model.setCurrency(false)
+        model.setSearchQueryRetention(.immediately)
         model.setWebSearch(false)
         let engine = try XCTUnwrap(WebSearchEngine.allCases.first { $0 != .duckDuckGo })
         model.setWebSearchEngine(engine)
@@ -25,6 +29,7 @@ final class LauncherSettingsTests: XCTestCase {
         model.setPinyin(false)
         for key in keys.filter({ $0.hasPrefix("index") }) { model.setScope(key, true) }
         XCTAssertFalse(model.calculatorEnabled)
+        XCTAssertFalse(model.currencyEnabled)
         XCTAssertFalse(model.webSearchEnabled)
         XCTAssertEqual(model.webSearchEngine, engine)
         XCTAssertEqual(pinyinChanges, 1)
