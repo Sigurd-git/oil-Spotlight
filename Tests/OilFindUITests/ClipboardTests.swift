@@ -738,7 +738,7 @@ final class ClipboardTests: XCTestCase {
                 DispatchQueue.main.async { finished.fulfill() }
                 return true
             })
-            let controller = SearchViewController(snapshot: false, clipboard: history)
+            let controller = SearchViewController(snapshot: false, clipboard: history, currencyRates: CurrencyRateProvider(snapshot: true))
             _ = controller.view
             let files = ClipboardEntry(content: .files(["/tmp/slow-mount/file"]))
             controller.scopes.scope = .clipboard

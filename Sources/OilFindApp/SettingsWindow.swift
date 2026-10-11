@@ -29,6 +29,8 @@ final class SettingsModel: ObservableObject {
     @Published var excludedExtensionsText: String
     @Published var pinyinEnabled: Bool
     @Published var calculatorEnabled: Bool
+    @Published var currencyEnabled: Bool
+    @Published var searchQueryRetention: SearchQueryRetention
     @Published var webSearchEnabled: Bool
     @Published var webSearchEngine: WebSearchEngine
     @Published var excludedPaths: [String]
@@ -81,6 +83,8 @@ final class SettingsModel: ObservableObject {
         excludedExtensionsText = snapshot ? "" : (preferences.stringArray(forKey: "excludedExtensions") ?? []).joined(separator: " ")
         pinyinEnabled = snapshot ? true : defaults.bool(forKey: "pinyinEnabled")
         calculatorEnabled = snapshot ? true : defaults.bool(forKey: "calculatorEnabled")
+        currencyEnabled = snapshot ? true : (preferences.object(forKey: "currencyEnabled") as? Bool ?? true)
+        searchQueryRetention = snapshot ? .minute : SearchQueryRetention.read(from: preferences)
         webSearchEnabled = snapshot ? true : defaults.bool(forKey: "webSearchEnabled")
         webSearchEngine = snapshot ? .duckDuckGo : WebSearchEngine(rawValue: defaults.string(forKey: "webSearchEngine") ?? "") ?? .duckDuckGo
         excludedPaths = snapshot ? [] : ExcludedFolders.adding(defaults.stringArray(forKey: "userExcludedPaths") ?? [], to: [])
@@ -185,6 +189,14 @@ final class SettingsModel: ObservableObject {
     func setCalculator(_ enabled: Bool) {
         calculatorEnabled = enabled
         if !snapshot { UserDefaults.standard.set(enabled, forKey: "calculatorEnabled") }
+    }
+    func setCurrency(_ enabled: Bool) {
+        currencyEnabled = enabled
+        if !snapshot { preferences.set(enabled, forKey: "currencyEnabled") }
+    }
+    func setSearchQueryRetention(_ retention: SearchQueryRetention) {
+        searchQueryRetention = retention
+        if !snapshot { preferences.set(retention.rawValue, forKey: "searchQueryRetention") }
     }
     func setWebSearch(_ enabled: Bool) {
         webSearchEnabled = enabled
@@ -411,6 +423,14 @@ private struct SettingsForm: View {
     private var searchSections: some View {
         Section(L10n.text("settings.search")) {
             VStack(alignment: .leading, spacing: 5) {
+                Picker(L10n.text("settings.queryExpiry"), selection: Binding(get: { model.searchQueryRetention }, set: model.setSearchQueryRetention)) {
+                    ForEach(SearchQueryRetention.allCases, id: \.self) { retention in
+                        Text(L10n.text(retention.localizationKey)).tag(retention)
+                    }
+                }
+                hint(L10n.text("settings.queryExpiryHint"))
+            }
+            VStack(alignment: .leading, spacing: 5) {
                 Toggle(L10n.text("settings.previewSpace"), isOn: Binding(get: { model.previewWithSpace }, set: model.setPreviewWithSpace))
                 hint(L10n.text("settings.previewSpaceHint"))
             }
@@ -421,6 +441,10 @@ private struct SettingsForm: View {
             VStack(alignment: .leading, spacing: 5) {
                 Toggle(L10n.text("settings.calculator"), isOn: Binding(get: { model.calculatorEnabled }, set: model.setCalculator))
                 hint(L10n.text("settings.calculatorHint"))
+            }
+            VStack(alignment: .leading, spacing: 5) {
+                Toggle(L10n.text("settings.currency"), isOn: Binding(get: { model.currencyEnabled }, set: model.setCurrency))
+                hint(L10n.text("settings.currencyHint"))
             }
             VStack(alignment: .leading, spacing: 5) {
                 Toggle(L10n.text("settings.webSearch"), isOn: Binding(get: { model.webSearchEnabled }, set: model.setWebSearch))

@@ -19,9 +19,12 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
     private var snapshotNoAccess = false
     private let snapshot: Bool
     private let preferences: UserDefaults
+    private let clock: () -> Date
+    private var hiddenAt: Date?
     let applications: ApplicationCatalog
     let clipboard: ClipboardHistory
     let pasteController: ClipboardPasteController
+    let currencyRates: CurrencyRateProvider
     var openApplication: (URL) -> Bool = { NSWorkspace.shared.open($0) }
     private let coordinator = SearchCoordinator()
     private var subscriptions: Set<AnyCancellable> = []
@@ -84,18 +87,22 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
     }
     var hidePanel: (() -> Void)?
     var onSettings: (() -> Void)?
-    init(snapshot: Bool, preferences: UserDefaults = .standard, clipboard: ClipboardHistory? = nil) {
+    init(snapshot: Bool, preferences: UserDefaults = .standard, clipboard: ClipboardHistory? = nil,
+         currencyRates: CurrencyRateProvider? = nil, clock: @escaping () -> Date = Date.init) {
         self.snapshot = snapshot
         self.preferences = preferences
+        self.clock = clock
         applications = ApplicationCatalog(snapshot: snapshot)
         self.clipboard = clipboard ?? ClipboardHistory(snapshot: snapshot)
         pasteController = ClipboardPasteController(snapshot: snapshot)
+        self.currencyRates = currencyRates ?? CurrencyRateProvider(snapshot: snapshot)
         super.init(nibName: nil, bundle: nil)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     override func loadView() { view = PanelSurface(snapshot: snapshot) }
     override func viewDidLoad() {
         super.viewDidLoad()
+        currencyRates.onChange = { [weak self] in self?.refreshSources() }
         [searchField, topLine, scopes, filters, results, empty, indexing, bottomLine, footer, syntax].forEach(view.addSubview)
         filters.isHidden = true
         scopes.onChange = { [weak self] scope in self?.selectScope(scope) }
@@ -227,7 +234,11 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
         }
     }
     func panelWillShow() {
-        additionalSearchProvider?.visibilityChanged(true)
+        if let hiddenAt, SearchQueryRetention.read(from: preferences).expired(hiddenAt: hiddenAt, now: clock()) {
+            searchField.editor.unmarkText()
+            searchField.text = ""
+        }
+        hiddenAt = nil
         setBrowsing(false)
         supplementaryProvider?.userActivity(visible: true, typing: false)
         if scopes.scope == .clipboard { _ = clipboard.search("") }
@@ -278,14 +289,14 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
                            apps: applications.apps, clipboard: clipboard.entries, clipboardEnabled: clipboard.enabled,
                            calculator: snapshot || defaults.bool(forKey: "calculatorEnabled"), web: snapshot || defaults.bool(forKey: "webSearchEnabled"),
                            engine: WebSearchEngine(rawValue: defaults.string(forKey: "webSearchEngine") ?? "duckDuckGo") ?? .duckDuckGo,
-                           sources: searchSources, supplementaryProvider: supplementaryProvider)
+                           sources: searchSources, supplementaryProvider: supplementaryProvider, currency: currencyRow)
     }
     func startSources() {
         guard !snapshot else { return }
         applications.start(excludedPaths: UserDefaults.standard.stringArray(forKey: "userExcludedPaths") ?? [])
         clipboard.start()
     }
-    func stopSources() { applications.stop(); clipboard.stop() }
+    func stopSources() { applications.stop(); clipboard.stop(); currencyRates.stop() }
     func selectScope(_ scope: SearchScope) {
         if scope == .clipboard { _ = clipboard.search("") }
         requestedScope = scope
@@ -297,7 +308,17 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
         let defaults = UserDefaults.standard
         coordinator.refreshSources(apps: applications.apps, clipboard: clipboard.entries, clipboardEnabled: clipboard.enabled,
                                    calculator: snapshot || defaults.bool(forKey: "calculatorEnabled"), web: snapshot || defaults.bool(forKey: "webSearchEnabled"),
-                                   engine: WebSearchEngine(rawValue: defaults.string(forKey: "webSearchEngine") ?? "duckDuckGo") ?? .duckDuckGo)
+                                   engine: WebSearchEngine(rawValue: defaults.string(forKey: "webSearchEngine") ?? "duckDuckGo") ?? .duckDuckGo,
+                                   currency: currencyRow)
+    }
+    private var currentCurrencyQuery: CurrencyQuery? {
+        guard scopes.scope == .all, !searchField.editor.hasMarkedText(),
+              snapshot || (preferences.object(forKey: "currencyEnabled") as? Bool ?? true) else { return nil }
+        return CurrencyQuery.parse(searchField.text)
+    }
+    private var currencyRow: LauncherRow? {
+        guard let query = currentCurrencyQuery else { return nil }
+        return .currency(query, currencyRates.lookup(query))
     }
     private func snapshotDidChange(_ found: SearchSnapshot) {
         if let file = found.filePresentation { configureEmpty(file) }
@@ -433,6 +454,9 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let command = flags.contains(.command), option = flags.contains(.option)
         if searchField.editor.hasMarkedText() { return false }
+        if event.keyCode == 51 && flags.intersection([.command, .control, .option, .shift]) == .command {
+            searchField.clearText(); return true
+        }
         let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
         // A nonactivating panel has no Edit menu to dispatch text shortcuts.
         if flags.intersection([.command, .control, .option, .shift]) == .command,
@@ -465,7 +489,6 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
             else { let index = SearchScope.allCases.firstIndex(of: scopes.scope)!; selectScope(SearchScope.allCases[(index + (flags.contains(.shift) ? 4 : 1)) % 5]) }
             return true
         case 53: if quickLook.isVisible { quickLook.close() } else if clipboardPreview?.isVisible == true { clipboardPreview?.close() } else { hidePanel?() }; return true
-        case 51 where command: trashSelected(); return true
         default: break
         }
         guard command else { return false }
@@ -510,6 +533,14 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
                     })
                 }; return
             case .answer(let answer): copyText(answer.value); return
+            case .currency(let query, let lookup):
+                guard currentCurrencyQuery == query else { return }
+                switch lookup {
+                case .ready(let quote): copyText(quote.value)
+                case .unavailable: currencyRates.retry(query); refreshSources()
+                case .loading: break
+                }
+                return
             case .url(let url), .web(_, let url):
                 if NSWorkspace.shared.open(url) { hidePanel?() } else { NSSound.beep() }; return
             case .enableClipboard: clipboard.setEnabled(true); startSearch(); return
@@ -551,6 +582,9 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
             case .clipboard(let entry):
                 copyClipboardEntry(entry) { [weak self] in self?.footer.showMessage(L10n.text("clipboard.copied")) }; return
             case .answer(let answer): copyText(answer.value); return
+            case .currency(let query, let lookup):
+                guard currentCurrencyQuery == query else { return }
+                if case .ready(let quote) = lookup { copyText(quote.value) }; return
             case .setting(let setting): copyText(setting.name); return
             case .app(let app): copyText(app.path); return
             case .url(let url), .web(_, let url): copyText(url.absoluteString); return
@@ -610,6 +644,14 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
                 actions.append(("clipboard.delete", 7))
             }
             if case .enableClipboard = row { actions = [("clipboard.enable", 0)] }
+            if case .currency(let query, let lookup) = row {
+                guard resultIsCurrent, currentCurrencyQuery == query else { return menu }
+                switch lookup {
+                case .ready: actions = [("launcher.copy", 4)]
+                case .unavailable: actions = [("currency.retry", 0)]
+                case .loading: actions = []
+                }
+            }
             for (key, tag) in actions {
                 let item = NSMenuItem(title: L10n.text(key), action: #selector(contextAction(_:)), keyEquivalent: "")
                 item.target = self; item.tag = tag; menu.addItem(item)
@@ -684,6 +726,7 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
         panel.contentView = scroll; panel.center(); panel.orderFrontRegardless(); clipboardPreview = panel
     }
     func panelDidHide() {
+        hiddenAt = clock()
         supplementaryProvider?.userActivity(visible: false, typing: false)
         invalidateClipboardCopy(); quickLook.close(); clipboardPreview?.close()
     }

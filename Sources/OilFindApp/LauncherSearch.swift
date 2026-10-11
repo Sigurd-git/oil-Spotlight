@@ -8,7 +8,7 @@ enum SearchScope: String, CaseIterable {
 
 enum LauncherRow {
     case file(ResultItem), app(LauncherApp), setting(SystemSetting), clipboard(ClipboardEntry)
-    case answer(ToolAnswer), url(URL), web(String, URL), enableClipboard
+    case answer(ToolAnswer), currency(CurrencyQuery, CurrencyLookup), url(URL), web(String, URL), enableClipboard
 
     var identity: String {
         switch self {
@@ -17,6 +17,7 @@ enum LauncherRow {
         case .setting(let setting): return "setting:" + setting.id
         case .clipboard(let entry): return "clip:" + entry.id.uuidString
         case .answer(let answer): return "answer:" + answer.expression
+        case .currency(let query, _): return "currency:" + query.expression
         case .url(let url): return "url:" + url.absoluteString
         case .web(let query, _): return "web:" + query
         case .enableClipboard: return "enableClipboard"
@@ -29,6 +30,12 @@ enum LauncherRow {
         case .setting(let setting): return setting.name
         case .clipboard(let entry): return entry.displayTitle
         case .answer(let answer): return answer.value
+        case .currency(_, let lookup):
+            switch lookup {
+            case .ready(let quote): return quote.value
+            case .loading: return L10n.text("currency.loading")
+            case .unavailable: return L10n.text("currency.unavailable")
+            }
         case .url(let url): return url.absoluteString
         case .web(let query, _): return L10n.text("launcher.web", query)
         case .enableClipboard: return L10n.text("clipboard.enable")
@@ -42,6 +49,16 @@ enum LauncherRow {
         case .clipboard(let entry):
             return [entry.locationSummary, entry.sourceName, Presentation.dateText(entry.copiedAt, now: Date(), calendar: .current, chinese: L10n.chinese)].compactMap { $0 }.joined(separator: " · ")
         case .answer(let answer): return answer.expression + " · " + answer.detail
+        case .currency(let query, let lookup):
+            let detail: String
+            switch lookup {
+            case .ready(let quote):
+                detail = (query.source == query.target ? L10n.text("currency.same") : L10n.text("currency.reference", quote.date)) +
+                    (quote.isStale ? " · " + L10n.text("currency.stale") : quote.isCached ? " · " + L10n.text("currency.cached") : "")
+            case .loading: detail = L10n.text("currency.loadingHint")
+            case .unavailable: detail = L10n.text("currency.unavailableHint")
+            }
+            return query.expression + " · " + detail
         case .url: return L10n.text("launcher.openURL")
         case .web: return L10n.text("launcher.webHint")
         case .enableClipboard: return L10n.text("clipboard.enableHint")
@@ -54,6 +71,7 @@ enum LauncherRow {
         case .setting(let setting): return setting.symbol
         case .clipboard(let entry): return entry.filePaths == nil ? "doc.on.clipboard" : "doc.on.doc"
         case .answer: return "equal.square"
+        case .currency: return "banknote"
         case .url: return "link"
         case .web: return "globe"
         case .enableClipboard: return "clipboard"
@@ -179,13 +197,14 @@ final class SearchCoordinator {
     func cancelFiles() { lock.lock(); fileRequest += 1; lock.unlock() }
     func search(raw: String, scope: SearchScope, options: SearchOptions, store: IndexStore?, editingRange: NSRange?, composing: Bool,
                 apps: [LauncherApp], clipboard: [ClipboardEntry], clipboardEnabled: Bool,
-                calculator: Bool, web: Bool, engine: WebSearchEngine, sources: [SearchSource]? = nil, supplementaryProvider: SupplementarySearchProvider? = nil) {
+                calculator: Bool, web: Bool, engine: WebSearchEngine, sources: [SearchSource]? = nil, supplementaryProvider: SupplementarySearchProvider? = nil,
+                currency: LauncherRow? = nil) {
         lock.lock(); generation += 1; lock.unlock()
         self.raw = raw; self.scope = scope; self.options = options; self.sources = sources ?? Self.primarySource(store); self.supplementaryProvider = supplementaryProvider; self.editingRange = editingRange; self.composing = composing
         previousFile = fileResult ?? previousFile; fileResult = nil; extras = []; tail = []; delivered = false
         filesPending = (scope == .files || scope == .all) && !self.sources.isEmpty
         refreshFiles(sources: self.sources)
-        refreshSources(apps: apps, clipboard: clipboard, clipboardEnabled: clipboardEnabled, calculator: calculator, web: web, engine: engine)
+        refreshSources(apps: apps, clipboard: clipboard, clipboardEnabled: clipboardEnabled, calculator: calculator, web: web, engine: engine, currency: currency)
     }
     private static func primarySource(_ store: IndexStore?) -> [SearchSource] {
         store.map { [SearchSource(id: "startup", displayName: "", isOnline: true, store: $0)] } ?? []
@@ -251,7 +270,8 @@ final class SearchCoordinator {
             }
         }
     }
-    func refreshSources(apps: [LauncherApp], clipboard: [ClipboardEntry], clipboardEnabled: Bool, calculator: Bool, web: Bool, engine: WebSearchEngine) {
+    func refreshSources(apps: [LauncherApp], clipboard: [ClipboardEntry], clipboardEnabled: Bool, calculator: Bool, web: Bool, engine: WebSearchEngine,
+                        currency: LauncherRow? = nil) {
         lock.lock(); sourceRequest += 1; let request = sourceRequest, token = generation; lock.unlock()
         let raw = self.raw, scope = self.scope, composing = self.composing
         sourceQueue.async { [weak self] in
@@ -278,6 +298,7 @@ final class SearchCoordinator {
                 if scope == .settings || scope == .all && !query.isEmpty { extra += SystemSettingsCatalog.search(query).map(LauncherRow.setting) }
                 if scope == .all && !composing {
                     if calculator, let answer = LauncherTools.evaluate(query) { extra.insert(.answer(answer), at: 0) }
+                    if let currency, case .currency(let request, _) = currency, request.expression == query { extra.insert(currency, at: 0) }
                     if let url = LauncherTools.url(query) { extra.insert(.url(url), at: 0) }
                     if web && !query.isEmpty {
                         let search = LauncherTools.explicitWebQuery(query) ?? query
@@ -309,7 +330,7 @@ final class SearchCoordinator {
         for row in extras {
             let rank: Int, source: Int
             switch row {
-            case .answer, .url, .web: rank = -1; source = -1
+            case .answer, .currency, .url, .web: rank = -1; source = -1
             case .app(let app): rank = LauncherMatch.rank(raw, in: [app.name] + app.aliases) ?? 3; source = 0
             case .setting(let setting): rank = LauncherMatch.rank(raw, in: [setting.name] + setting.aliases) ?? 3; source = 1
             default: continue

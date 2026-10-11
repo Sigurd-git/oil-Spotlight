@@ -273,3 +273,27 @@ Rebase 提交 `a2d834de54f688bc893bb480ed7f6c7b0f7dd8b5` 已签名推送，fork 
 安装准备时，运行的旧版实际显示 72 条历史且无保存错误，保留开启状态、30 天、1,000 条及原排除名单；旧应用、偏好和密文已有权限受限的备份。最终安装前须再次核对保存状态，安装后的真实历史恢复及本次准确提交的 CI 状态记录在本机 `build/validation/upstream-auto-sync/state.json`，不能把本节推送前检查当作已完成安装的证据。
 
 相对本轮上游，C 热路径、文件搜索算法、CLI 与索引格式没有 fork 改动；Core 仅保留快捷键默认值及工具偏好注册。本轮没有重新测量完整 UI 首屏延迟、长期后台资源或与最新上游的整 App 性能对照，旧报告的数值不作为本轮零开销的证明。macOS 14/15 真机和获得辅助功能权限后的真实自动粘贴仍未验证。
+
+
+## 2026-10-11：搜索词过期、清空快捷键与汇率换算
+
+在上游 `2c420c527c98ec4ce404e3fac8fd8d4265b859c5`、fork `2a577dc21c08afb193cc87b7079a8888593a4fbe` 的基础上，搜索词默认在面板关闭满 60 秒后过期，下次唤起时清空。设置提供立即、1/5/15 分钟及始终保留；短暂隐藏保留输入，可见面板不自动清空，分类与筛选保留。⌘⌫ 清空整串文字，包括光标在开头、中间和存在部分选区的情况；中文组字保持输入法处理，文件回收和历史删除保留在右键菜单。
+
+汇率只在全部分类、开关开启、非中文组字且输入完整表达式时按需获取。支持 `100 usd in to rmb`、`100 USD to CNY`、`100美元转人民币` 和 13 个常用币种，RMB 映射为 CNY。固定请求 Frankfurter 的 ECB EUR 基准汇率列表，不发送金额、原查询、文件或剪贴板；参考日期在结果中显示。网络与公开缓存读取在后台，文件来源独立返回。缓存取得后保留 24 小时，刷新失败时标明过期回退；参考日期超过 30 天不展示，无可用缓存时 Return 重试。同币种换算离线；金额直接解析为 Decimal，拒绝不可精确表示的输入，避免 binary64 和格式化过程丢失大金额精度。关闭开关后旧失败行也不能发起重试。
+
+每日自动任务继续按 America/New_York 的 09:00 运行。按用户授权，Git 提交以命令级 `commit.gpgsign=false` 执行，rebase 明确禁用提交签名，验证后直接推送自己的 fork 并安装；不改全局签名配置、Git 凭据或钥匙串。应用构建仍强制 `OILFIND_REQUIRE_STABLE_SIGNING=1`，固定证书、designated requirement 和已签名 XPC 服务继续核验。服务 SHA-256 保持 `676a7366751a105eaae79b2bbac80a2b663a78c8d773e728980d648e6b41fa49`，Release、Debug 与缓存逐字节相同，没有重编或重签服务。
+
+| 检查 | 本轮结果 | 本地证据 |
+| --- | --- | --- |
+| 完整 Swift 测试 | 335 项，327 通过，8 项按配置跳过，0 失败 | `swift-full-complete.log` |
+| 汇率、输入、剪贴板联合回归 | 99 项通过；Quick Look 清理与新输入的最终专项 45 项通过 | `swift-reviewed-regression.log`、`swift-preview-regression.log` |
+| Python 脚本 | uv 下 68 项通过 | `scripts-test.log` |
+| 官网 | Node.js 22.21.1 / pnpm 11.25.0；130 项测试、类型检查、正式构建通过 | `site-*-complete.log` |
+| 加密跨进程升级 | 3 条合成历史由独立进程恢复；全局钥匙串配置不变 | `clipboard-upgrade.log` |
+| Release / Debug | 固定本地签名、实际 leaf、DR、服务缓存与固定身份记录通过核验 | `release-build.log`、`debug-build.log`、`build-identities.json` |
+| 正式 Mach-O | `minos 14.0` / `sdk 27.0` | `release-verify.log` |
+| 合成快照 | 汇率成功/加载/失败、搜索设置、统一搜索、文件剪贴板 × 中英文 × 浅深色，共 24 张；人工检查新增布局 | `snapshots.json`、`snapshots/` |
+
+初次检查的 Swift 类型推断超时通过拆分表达式修复。完整测试还发现旧测试把注册默认值当成持久化写入，现在直接核对持久化域；一次 Quick Look 隐藏超时促使清理先等待预览隐藏，再关闭所属窗口。原断言、超时和初始失败日志保留。所有新增汇率测试使用隔离缓存、注入时钟及合成 transport；既有非快照剪贴板控制器测试也显式注入合成汇率提供方，不读取用户汇率缓存或联网。
+
+证据目录为 Git 忽略的 `build/validation/upstream-auto-sync/20261011-currency-input/`。安装前运行版已核对 72 条历史、30 天/1,000 条策略且无保存错误；最后的 fork 提交、准确提交的 CI、安装哈希及真实历史恢复结果写入 `build/validation/upstream-auto-sync/state.json`，本节不将构建或推送准备当作完成安装。文件 C 热路径、搜索算法和索引格式未改，本轮未重新测量完整 App 性能；macOS 14/15 尚无真机验收。
