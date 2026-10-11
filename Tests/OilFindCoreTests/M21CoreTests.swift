@@ -236,6 +236,17 @@ final class M21CoreTests: XCTestCase {
         guard process.terminationStatus == 0 else { throw NSError(domain: "M21Image", code: Int(process.terminationStatus), userInfo: [NSLocalizedDescriptionKey: String(decoding: errorData, as: UTF8.self)]) }
         return data
     }
+    private func openDescriptorPaths(in root: URL) -> [String] {
+        var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+        var paths: [String] = []
+        for descriptor in 0..<getdtablesize() {
+            let status = buffer.withUnsafeMutableBufferPointer { fcntl(descriptor, F_GETPATH, $0.baseAddress!) }
+            guard status == 0 else { continue }
+            let path = String(cString: buffer)
+            if path == root.path || path.hasPrefix(root.path + "/") { paths.append(path) }
+        }
+        return paths.sorted()
+    }
     func testAPFSDeviceHistoryOfflineRemountAndEject() throws { try imageLifecycle("APFS") }
     func testExFATDeviceHistoryOfflineRemountAndEject() throws { try imageLifecycle("ExFAT") }
     private func imageLifecycle(_ filesystem: String) throws {
@@ -329,10 +340,13 @@ final class M21CoreTests: XCTestCase {
         try write(cancelTree, "child.txt")
         second.injectEvents([FSChange(path: remounted.appendingPathComponent("cancel-tree").path, flags: 1, eventId: loaded.lastEventId + 1)], mustRescanAll: false)
         XCTAssertTrue(eventually { readingSubtree.wait(timeout: .now()) == .success })
+        XCTAssertFalse(openDescriptorPaths(in: remounted).isEmpty, "The blocked subtree read must exercise an open directory")
         let updateBegin = CFAbsoluteTimeGetCurrent(); second.stop(); manager = nil
         let stoppedUpdate = CFAbsoluteTimeGetCurrent() - updateBegin
+        let updateDescriptors = openDescriptorPaths(in: remounted)
+        XCTAssertTrue(updateDescriptors.isEmpty, "Stop must release volume descriptors: \(updateDescriptors)")
         try detach(); let ejectedUpdate = CFAbsoluteTimeGetCurrent() - updateBegin
-        print(String(format: "M21 %@: updateStop=%.3fs updateStop+eject=%.3fs", filesystem, stoppedUpdate, ejectedUpdate))
+        print(String(format: "M21 %@: updateStop=%.3fs updateStop+eject=%.3fs remainingDescriptors=%d", filesystem, stoppedUpdate, ejectedUpdate, updateDescriptors.count))
         XCTAssertLessThan(ejectedUpdate, 1)
         let finalMount = try attach("finalMount")
         for i in 0..<300 { try FileManager.default.createDirectory(at: finalMount.appendingPathComponent("dir-\(i)"), withIntermediateDirectories: true) }
@@ -348,8 +362,10 @@ final class M21CoreTests: XCTestCase {
         XCTAssertEqual(third.state, .scanning); XCTAssertGreaterThan(third.scannedCount, 0)
         defer { for _ in 0..<ProcessInfo.processInfo.activeProcessorCount { resume.signal() } }
         let begin = CFAbsoluteTimeGetCurrent(); third.stop(); let stopped = CFAbsoluteTimeGetCurrent() - begin
+        let scanDescriptors = openDescriptorPaths(in: finalMount)
+        XCTAssertTrue(scanDescriptors.isEmpty, "Stop must release volume descriptors: \(scanDescriptors)")
         try detach(); let ejected = CFAbsoluteTimeGetCurrent() - begin
-        print(String(format: "M21 %@: stop=%.3fs stop+eject=%.3fs", filesystem, stopped, ejected))
+        print(String(format: "M21 %@: stop=%.3fs stop+eject=%.3fs remainingDescriptors=%d", filesystem, stopped, ejected, scanDescriptors.count))
         XCTAssertLessThan(stopped, 1); XCTAssertLessThan(ejected, 1)
     }
 }
