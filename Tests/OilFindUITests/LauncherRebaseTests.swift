@@ -201,6 +201,7 @@ final class LauncherRebaseTests: XCTestCase {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 560), styleMask: .borderless, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.contentViewController = controller
         defer { provider.gate.signal(); window.close() }
+        window.orderFront(nil)
         let combined = base.supplement([.init(sourceID: "startup", entryID: 3, detail: "Synthetic match")], options: .init())
         try controller.prepareLauncherSnapshot(SearchSnapshot(raw: "report", scope: .files, filePresentation: combined))
         controller.additionalSources = { [.init(id: "startup", displayName: "", isOnline: true, store: index)] }
@@ -212,7 +213,7 @@ final class LauncherRebaseTests: XCTestCase {
                                                 windowNumber: window.windowNumber, context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: 125))
         XCTAssertTrue(controller.handleKey(down))
         XCTAssertEqual(controller.results.selectedID, 3)
-        provider.blocked = true; window.orderFront(nil)
+        provider.blocked = true
         controller.indexChanged()
         wait(for: [provider.started], timeout: 3)
         RunLoop.main.run(until: Date().addingTimeInterval(0.1))
