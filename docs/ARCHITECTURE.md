@@ -319,6 +319,16 @@ playground xcarchive dsym rtfd scptd lproj logicx band screenstudio pages number
 
 后台钥匙串读取同时禁止 LAContext 和传统 macOS Keychain 的交互，传统接口的进程内交互状态在串行请求后恢复。访问失败时保留原密文并显示错误，新增记录只留在内存；设置中的「授权保存历史」是唯一请求交互授权的入口。该入口创建新的存储实例，只有成功读取原归档后才合并当前记录并恢复保存；拒绝授权或损坏归档都不能覆盖原文件。等待显式授权时退出应用不会同步等待系统安全对话框。
 
+本地持续构建可使用 `scripts/create-signing-cert.sh --local` 配置登录钥匙串中的固定签名身份。临时 PKCS#12 传输和一次性密码仅存放在 0700 临时目录中，密码通过文件传给独立的 Security helper，不进入进程参数；helper 禁止交互导入，为新签名私钥指定仅 `/usr/bin/codesign` 的初始访问规则。结束时删除临时私钥、传输文件和密码，不修改系统 trust、搜索列表或现有剪贴板密钥 ACL。公开本地配置以 0600 plist 保存证书 SHA-1 和钥匙串路径。
+
+`build-app.sh` 用证书指纹选择身份，并显式嵌入 `identifier "com.oiloil.find" and certificate leaf = H"…"` 的 designated requirement，签名后验证该要求。指纹缺失、配置损坏或身份不可用时保留原产物；自动更新使用 `OILFIND_REQUIRE_STABLE_SIGNING=1`，配置缺失也不生成临时签名。
+
+现代登录钥匙串对无法归类为 Apple 开发者签名的代码仍采用 `cdhash:` partition，固定自签名证书的不同二进制也不能仅靠相同 DR 访问旧项目。本地固定签名构建使用 `scripts/prepare-key-service.sh` 编译并签名 `OilFindClipboardKeyService.xpc`，首次缓存到签名配置目录的 `clipboard-key-service/`；其 manifest 记录公开证书、源码及可执行文件 SHA-256，并在缓存外原子保存 `key-service-identity.plist` 固定身份记录。后续构建核验三者、身份记录和服务签名后原样嵌入，不能重签嵌套服务。已有缓存尚无身份记录时，只在完整校验通过后补记；已有身份记录但缓存缺失时拒绝重建。缓存损坏、源码变更、证书变化都失败并保留旧产物，服务升级需显式迁移及必要的本人授权。
+
+`ClipboardKeyAccess.swift` 是应用和独立服务共用的钥匙串操作与协议源，不依赖文件引擎或界面。服务只接受同 UID、`com.oiloil.find` 且使用其同一实际 leaf 证书的主程序，主程序也用对应服务标识与证书核验服务。连接采用 macOS 13 起的 `NSXPCConnection.setCodeSigningRequirement`，由 XPC 核验实时 peer；不以 PID 或路径替代身份。仅传递创建标志、显式交互标志和 32 字节密钥/错误；调用者不能指定其他 service/account。密钥只进入应用内存供原 AES-GCM 存储使用，不导出到文件、命令行或日志。客户端在后台存储队列等待，超时、中断及迟到回复均使本次请求失败且不影响下一次；读取失败不降级为直接访问。设置授权按钮是服务交互的入口。未配置本地身份的构建、CLI 和明确指定隔离钥匙串的测试保留原直接路径，原历史格式及密钥项目不变。
+
+服务的 `XPCService.JoinExistingSession` 必须为 true，使其加入主应用的登录会话并可在明确请求时展示系统授权。钥匙串操作对交互状态进行串行、临时切换并恢复原值。连接中断或失效立即标记对应 lifetime，拒绝尚未开始的排队请求；已开始的 Security 调用无法取消。修改服务会话配置后必须重新启动父应用，现存 launchd job 不会因磁盘上的 bundle 变化自动采用新配置。
+
 用户对文件历史项执行 ⌘C 时，将整组路径恢复为真正的文件 URL pasteboard 项，使用户回 Finder 按 ⌘V 能复制文件。Return 沿用直接粘贴流程：在用户明确选择粘贴后验证原目标应用仍在运行、窗口焦点与辅助功能权限，再发送 ⌘V；不会读取目标应用内容。权限或焦点等检查失败时只复制到系统剪贴板，并明确提示仅完成复制。无论使用 ⌘C 还是 Return，整组文件存在性校验都在专用后台队列执行，逐项检查取消状态；2 秒失败期限防止网络位置一直等待。后台系统调用不能强行中断，但超时或取消后的完成回调不能修改剪贴板。写入前重新检查查询代次、分类、选中条目的身份和内容，以及面板的显示、焦点与隐藏状态；修改查询、切换选中项、删除历史或关闭面板取消旧操作。任一路径失效时不替换当前剪贴板、不继续粘贴，并提示重新复制文件。路径移动或删除后无法从历史恢复文件。
 
 默认全局快捷键为 ⌘Space，默认注册值来自 UserDefaults 注册域；已保存的 `hotKeyCode` 与 `hotKeyModifiers`（包括用户自定义值）会覆盖注册默认值。若默认 ⌘Space 注册失败，AppDelegate 会临时尝试注册旧快捷键 ⇧⌘F，并显示实际绑定状态；该回退不写入或覆盖保存的快捷键。设置页提供 Spotlight 系统快捷键入口、路径提示、重试及自定义录制。快捷键录制器的 Delete 重置为新的 ⌘Space。⌘0…⌘4 按应用层 `SearchScope.allCases` 顺序切换全部、应用、文件、设置、剪贴板范围；⌥⌘1…9 选择文件类型。Tab 在文件范围切换文件类型；数字快捷键按修饰键和面板上下文分发。

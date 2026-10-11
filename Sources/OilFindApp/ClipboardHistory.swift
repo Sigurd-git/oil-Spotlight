@@ -1,7 +1,6 @@
 import AppKit
 import Combine
 import CryptoKit
-import LocalAuthentication
 import OilFindCore
 import Security
 import UniformTypeIdentifiers
@@ -243,49 +242,24 @@ struct ClipboardKeychain: ClipboardKeyProviding {
     var allowsInteraction = false
     // Tests may use an isolated keychain without changing the user's search list.
     var keychain: SecKeychain?
-    private static let interactionLock = NSRecursiveLock()
-
     func key(createIfMissing: Bool) throws -> SymmetricKey {
-        // LAContext does not suppress prompts for legacy macOS keychain items.
-        // Limit this process-wide switch to the serialized request and restore it.
-        Self.interactionLock.lock()
-        defer { Self.interactionLock.unlock() }
-        var interactionAllowed: DarwinBoolean = false
-        if !allowsInteraction {
-            guard SecKeychainGetUserInteractionAllowed(&interactionAllowed) == errSecSuccess,
-                  SecKeychainSetUserInteractionAllowed(false) == errSecSuccess
-            else { throw ClipboardFailure.keychainUnavailable }
-        }
-        defer { if !allowsInteraction { SecKeychainSetUserInteractionAllowed(interactionAllowed.boolValue) } }
-        let context = LAContext()
-        context.interactionNotAllowed = !allowsInteraction
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service, kSecAttrAccount as String: account,
-            kSecUseAuthenticationContext as String: context
-        ]
-        var lookup = query
-        lookup[kSecReturnData as String] = true
-        lookup[kSecMatchLimit as String] = kSecMatchLimitOne
-        if let keychain { lookup[kSecMatchSearchList as String] = [keychain] }
-        var result: CFTypeRef?
-        let status = SecItemCopyMatching(lookup as CFDictionary, &result)
-        if status == errSecSuccess {
-            guard let bytes = result as? Data, bytes.count == 32 else { throw ClipboardFailure.keyUnavailable }
+        do {
+            let bytes: Data
+            if keychain == nil, service == ClipboardKeyService.service,
+               account == ClipboardKeyService.account,
+               Bundle.main.object(forInfoDictionaryKey: "OilFindUsesKeyService") as? Bool == true {
+                bytes = try ClipboardKeyServiceClient.bytes(createIfMissing: createIfMissing,
+                                                            allowsInteraction: allowsInteraction)
+            } else {
+                bytes = try ClipboardKeyAccess.bytes(service: service, account: account,
+                    allowsInteraction: allowsInteraction, keychain: keychain, createIfMissing: createIfMissing)
+            }
             return SymmetricKey(data: bytes)
+        } catch ClipboardKeyAccessFailure.keyUnavailable {
+            throw ClipboardFailure.keyUnavailable
+        } catch {
+            throw ClipboardFailure.keychainUnavailable
         }
-        guard status == errSecItemNotFound else { throw ClipboardFailure.keychainUnavailable }
-        guard createIfMissing else { throw ClipboardFailure.keyUnavailable }
-        let generated = SymmetricKey(size: .bits256)
-        var addition = query
-        if let keychain { addition[kSecUseKeychain as String] = keychain }
-        addition[kSecValueData as String] = generated.withUnsafeBytes { Data($0) }
-        addition[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        addition[kSecAttrSynchronizable as String] = false
-        let added = SecItemAdd(addition as CFDictionary, nil)
-        if added == errSecDuplicateItem { return try key(createIfMissing: false) }
-        guard added == errSecSuccess else { throw ClipboardFailure.keychainUnavailable }
-        return generated
     }
 }
 
