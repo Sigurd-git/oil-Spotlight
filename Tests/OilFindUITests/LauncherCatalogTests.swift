@@ -10,9 +10,10 @@ final class LauncherCatalogTests: XCTestCase {
         return url
     }
 
-    private func makeApp(at url: URL, name: String, bundleID: String, localizedNames: [String: [String: String]] = [:]) throws {
+    private func makeApp(at url: URL, name: String, bundleID: String, displayName: String? = nil,
+                         localizedNames: [String: [String: String]] = [:]) throws {
         try FileManager.default.createDirectory(at: url.appendingPathComponent("Contents/MacOS"), withIntermediateDirectories: true)
-        let plist: [String: Any] = ["CFBundleName": name, "CFBundleDisplayName": name,
+        let plist: [String: Any] = ["CFBundleName": name, "CFBundleDisplayName": displayName ?? name,
                                     "CFBundleIdentifier": bundleID, "CFBundlePackageType": "APPL",
                                     "CFBundleLocalizations": Array(localizedNames.keys)]
         let data = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
@@ -72,6 +73,31 @@ final class LauncherCatalogTests: XCTestCase {
         XCTAssertEqual(catalog.search("中文").map(\.id), [appURL.standardizedFileURL.path])
         XCTAssertEqual(catalog.search("zwgj").map(\.id), [appURL.standardizedFileURL.path])
         XCTAssertTrue(scanned.first?.aliases.contains("中文工具") ?? false)
+    }
+
+    func testBlankBundleNamesFallBackWithoutBlankSearchAliases() throws {
+        let root = try temporaryDirectory()
+        let fileNameFallback = root.appendingPathComponent("Unnamed Tool.app", isDirectory: true)
+        try makeApp(at: fileNameFallback, name: "\n\t", bundleID: "example.unnamed", displayName: "")
+        let bundleNameFallback = root.appendingPathComponent("Internal Tool.app", isDirectory: true)
+        try makeApp(at: bundleNameFallback, name: " Useful Tool ", bundleID: "example.useful", displayName: "  \n")
+        let rawNameFallback = root.appendingPathComponent("Localized Tool.app", isDirectory: true)
+        let emptyLocalization = ["CFBundleDisplayName": " \n", "CFBundleName": "\t"]
+        try makeApp(at: rawNameFallback, name: "Raw Tool", bundleID: "example.raw",
+                    localizedNames: ["en": emptyLocalization, "zh-Hans": emptyLocalization])
+
+        let scanned = ApplicationCatalog.scan(roots: [root])
+        let names = Dictionary(uniqueKeysWithValues: scanned.map { ($0.id, $0.name) })
+        XCTAssertEqual(names[fileNameFallback.path], "Unnamed Tool")
+        XCTAssertEqual(names[bundleNameFallback.path], "Useful Tool")
+        XCTAssertEqual(names[rawNameFallback.path], "Raw Tool")
+        XCTAssertTrue(scanned.flatMap(\.aliases).allSatisfy { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
+
+        let catalog = ApplicationCatalog(snapshot: true)
+        catalog.prepareSnapshot(scanned)
+        XCTAssertEqual(catalog.search("unnamed").map(\.id), [fileNameFallback.path])
+        XCTAssertEqual(catalog.search("useful").map(\.id), [bundleNameFallback.path])
+        XCTAssertEqual(catalog.search("raw tool").map(\.id), [rawNameFallback.path])
     }
 
     func testLaunchRecencyPersistsInIsolatedDefaultsAndChangesEmptySearchOrder() throws {
