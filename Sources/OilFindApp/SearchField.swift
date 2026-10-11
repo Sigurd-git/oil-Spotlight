@@ -72,7 +72,7 @@ final class SearchField: FlippedView, NSTextFieldDelegate {
     deinit { if let selectionObserver { NotificationCenter.default.removeObserver(selectionObserver) } }
     func controlTextDidEndEditing(_ obj: Notification) { onSelectionChange?() }
     func controlTextDidChange(_ obj: Notification) { updateAccessory(); onChange?() }
-    @objc private func clearText() { text = ""; focus(); onChange?() }
+    @objc func clearText() { text = ""; focus(); onChange?() }
     private func accessory(_ view: NSView, visible: Bool) {
         let animate = window?.isVisible == true
         view.isHidden = false

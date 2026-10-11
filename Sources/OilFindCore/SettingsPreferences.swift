@@ -15,7 +15,8 @@ public enum SettingsPreferences {
         defaults.register(defaults: [
             "hotKeyCode": Int(Shortcut.defaultKeyCode), "hotKeyModifiers": Int(Shortcut.defaultModifiers),
             "previewWithSpace": true, "excludedExtensions": [String](), "pinyinEnabled": true, "userExcludedPaths": [String](), "skippedFullDiskAccess": false, "didFinishOnboarding": false,
-            "calculatorEnabled": true, "webSearchEnabled": true, "webSearchEngine": "duckDuckGo",
+            "calculatorEnabled": true, "currencyEnabled": true, "searchQueryRetention": 60,
+            "webSearchEnabled": true, "webSearchEngine": "duckDuckGo",
             "indexDependencyDirs": false, "indexPackageContents": false, "indexUserLibrary": false, "indexSystemDirs": false,
             "sortKey": "relevance", "sortAscending": false
         ])

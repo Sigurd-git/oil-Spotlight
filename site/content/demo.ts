@@ -3,6 +3,15 @@ export interface DemoFile { name: string; dir: string; when: string; size: strin
 type DemoFileTuple = [string | [string, string], string | [string, string], string, string, string, string];
 export interface Query { pos: string[]; neg: string[]; exts: string[]; paths: string[]; today: boolean; empty: boolean }
 
+export function shouldClearQueryOnShortcut(event: Pick<KeyboardEvent, 'key' | 'metaKey' | 'isComposing'> & Partial<Pick<KeyboardEvent, 'ctrlKey' | 'altKey' | 'shiftKey'>>): boolean {
+  return event.metaKey && event.key === 'Backspace' && !event.isComposing && !event.ctrlKey && !event.altKey && !event.shiftKey;
+}
+
+export function syntheticCurrencyResult(query: string): { value: string; rateDate: string } | null {
+  if (!/^\s*100\s*(?:usd|\$|美元)\s*(?:(?:(?:in\s+)?to)\s*(?:rmb|cny|人民币)|转\s*人民币)\s*$/i.test(query)) return null;
+  return { value: '700.00 CNY', rateDate: '2026-01-01' };
+}
+
 export const FILES: readonly DemoFileTuple[] = [
   ['README.md', '~/Developer/tidepool', 't11:49', '8 KB', 'doc', ''],
   ['readme-assets', '~/Developer/tidepool/docs', 'y16:12', 'folder', 'folder', ''],

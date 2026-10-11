@@ -136,8 +136,9 @@ extension M26UITests {
         let panel = SearchPanel(snapshot: true)
         defer {
             panel.searchController.quickLook.close()
-            panel.close()
+            // Finish the preview transition while its controlling window is still alive.
             resetPreviewPanel()
+            panel.close()
         }
         let controller = panel.searchController
         try controller.prepareSnapshot(state: "results", query: "row", options: .init(sort: .name, ascending: true), store: store, selection: 0)
@@ -179,7 +180,8 @@ extension M26UITests {
         XCTAssertTrue(window.makeFirstResponder(field))
         let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
         editor.insertText(" .LOG, js , .css log  ", replacementRange: NSRange(location: 0, length: 0))
-        XCTAssertNil(defaults.stringArray(forKey: "excludedExtensions"))
+        // Registered defaults may supply an empty array; typing must not persist a preference.
+        XCTAssertNil(defaults.persistentDomain(forName: suite)?["excludedExtensions"])
         editor.breakUndoCoalescing()
         RunLoop.main.run(until: Date().addingTimeInterval(0.01))
         XCTAssertTrue(field.control(field, textView: editor, doCommandBy: #selector(NSResponder.insertNewline(_:))))
