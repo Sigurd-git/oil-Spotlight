@@ -276,14 +276,24 @@ extension M26UITests {
         let origin = scroll.contentView.bounds.origin
         let next = SearchPresentation(try XCTUnwrap(Searcher.search(.parse("row"), in: store)))
         view.refresh(next)
-        RunLoop.main.run(until: Date().addingTimeInterval(0.15))
+        // AppKit can stop a run-loop invocation early; keep the original wall-clock deadline.
+        let pendingDeadline = Date().addingTimeInterval(0.15)
+        while Date() < pendingDeadline {
+            RunLoop.main.run(until: min(pendingDeadline, Date().addingTimeInterval(0.005)))
+        }
         XCTAssertTrue(view.result === first)
         XCTAssertEqual(scroll.contentView.bounds.origin, origin)
         let ended = try wheel(momentum: 3)
         XCTAssertEqual(ended.momentumPhase, .ended)
         scroll.scrollWheel(with: ended)
-        RunLoop.main.run(until: Date().addingTimeInterval(0.15))
-        XCTAssertTrue(view.result === next)
+        let appliedDeadline = Date().addingTimeInterval(0.15)
+        while view.result !== next && Date() < appliedDeadline {
+            RunLoop.main.run(until: min(appliedDeadline, Date().addingTimeInterval(0.005)))
+        }
+        let interaction = Mirror(reflecting: view).children.filter {
+            ["liveScrolling", "wheelScrolling", "momentumScrolling"].contains($0.label ?? "")
+        }.map { "\($0.label ?? "state")=\($0.value)" }.joined(separator: ", ")
+        XCTAssertTrue(view.result === next, "Refresh must commit within 150 ms: \(interaction)")
         XCTAssertEqual(scroll.contentView.bounds.origin, origin)
     }
 }
