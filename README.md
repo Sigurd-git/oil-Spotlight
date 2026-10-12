@@ -1,194 +1,178 @@
 <p align="center">
-  <img src="./assets/readme/hero.svg" width="100%" alt="Oil Find：文件、应用和剪贴板，一处搜索。默认按 ⌘Space 打开。">
+  <a href="https://github.com/Sigurd-git/oil-Spotlight"><b>Fork source</b></a>
+  &nbsp;·&nbsp;
+  <a href="https://find.oiloil.org/en">Website</a>
+  &nbsp;·&nbsp;
+  <a href="./README.zh-CN.md">简体中文</a>
 </p>
 
-<p align="center">
-  <a href="https://github.com/oil-oil/oil-find/releases/latest"><b>下载</b></a>
-  &nbsp;·&nbsp;
-  <a href="https://find.oiloil.org">官网</a>
-  &nbsp;·&nbsp;
-  <a href="./README.en.md">English</a>
-</p>
+This repository is a public fork of [upstream Oil Find](https://github.com/oil-oil/oil-find). It retains upstream multi-source extensions and the Pro website flow, and adds unified search and clipboard history. Fork builds disable the upstream official app-update channel; they do not check for or install upstream app updates. Build from this fork's source; upstream releases are described in the Pro section below.
 
-本仓库是基于 [Oil Find 上游项目](https://github.com/oil-oil/oil-find) 的公开 fork；本分支保留上游的多来源扩展与 Pro 官网流程，并增加统一搜索和剪贴板历史。fork 构建关闭上游官方应用更新通道，不会自动检查或安装上游官方更新；请使用本 fork 发布的构建（如有）或自行构建。
+Oil Find is a native macOS search panel. Press ⌘Space by default. If that shortcut cannot register because of Spotlight, the app temporarily tries ⇧⌘F and provides a Spotlight settings link, directions and retry in Settings. You can also turn off the Spotlight search shortcut in System Settings → Keyboard → Keyboard Shortcuts → Spotlight. Upgrades preserve an existing custom shortcut.
 
-Oil Find 是 macOS 原生搜索面板。默认按 ⌘Space 打开；如果该快捷键因 Spotlight 冲突而注册失败，应用会临时尝试 ⇧⌘F，并在设置中提供 Spotlight 系统快捷键设置入口、路径提示和重试。你也可以在「系统设置 → 键盘 → 键盘快捷键 → Spotlight」关闭 Spotlight 搜索快捷键。升级时会保留你已有的自定义快捷键。
+All file-name search features are in the free, open-source version. External drives are searchable while connected; after you unplug one, its files are no longer searchable in the free version. Searching unplugged drives and image or document contents is part of the separate paid upstream [Oil Find Pro](#oil-find-pro) add-on. Unified search, clipboard history and Spotlight shortcut handling are part of this fork's macOS app.
 
-按文件名搜索的全部功能都在免费版里，代码开源。搜外置磁盘、图片和文档内容是独立付费的 [Oil Find Pro](#oil-find-pro) 扩展；统一搜索、剪贴板历史和 Spotlight 快捷键属于本 fork 的 macOS 应用。
+## Why it's fast
 
-## 为什么快
+- **File names live in one contiguous block of memory.** Hundreds of thousands of names are stored column by column and scanned front to back, with no per-file objects.
+- **Matching runs in C with NEON.** Character comparisons use Apple silicon's vector instructions in batches.
+- **Results narrow incrementally.** Typing one more character only searches what already matched.
+- **Only changes get updated.** FSEvents reports what changed and the index is updated incrementally. After a restart, Oil Find catches up from where it left off.
 
-- **文件名放在一块连续的内存里。** 几十万个名称按列存放，搜索时从头到尾扫一遍，不给每个文件单独创建对象。
-- **匹配交给 C 和 NEON。** 字符比较用 Apple 芯片的向量指令批量完成。
-- **增量收窄结果。** 每多打一个字，只在上一次的结果里继续找。
-- **只更新变化的部分。** 通过 FSEvents 监听文件变化，增量更新索引；应用重启后从上次停下的位置接着补齐。
+Dependency folders, app and package internals, Library and system folders are excluded by default. You can adjust the index scope in Settings. File search supports pinyin, name and path conditions, wildcards, and kind, size and modification-date filters.
 
-默认不深入开发依赖目录、应用包内部、资源库和系统目录；可在设置里调整索引范围。文件搜索支持拼音、名称与路径条件、通配符、类型、大小和修改时间筛选。
+## Other search scopes
 
-## 其他搜索范围
+The panel offers All, Apps, Files, Settings and Clipboard scopes, switchable with ⌘0…⌘4. Use ⌥⌘1…9 for file-type filters. File results retain Quick Look, path copying, Finder reveal and drag-and-drop.
 
-搜索面板提供「全部、应用、文件、设置、剪贴板」范围，按 ⌘0…⌘4 切换；文件类型筛选使用 ⌥⌘1…9。文件结果保留 Quick Look 预览、路径复制、访达定位与拖放操作。
+Press ⌘⌫ to clear the entire search field. By default, a query expires after the panel has been closed for 1 minute and clears on the next opening. Brief app switches keep it; it never clears while you are typing. In Settings → Search → Clear Search Query, choose immediately after closing, 1 minute, 5 minutes, 15 minutes, or always keep. Scope and filter preferences remain selected.
 
-按 ⌘⌫ 清空整个搜索框。搜索词默认在面板关闭 1 分钟后过期，再次唤起时自动清空，短时间切换应用会保留输入；不会在输入过程中清空。可在「设置 → 搜索 → 搜索词自动清空」选择关闭后立即、1 分钟、5 分钟、15 分钟或始终保留。分类和筛选偏好保留。
+![Unified search using synthetic examples](./assets/readme/launcher-en.png)
 
-![统一搜索，使用合成示例数据](./assets/readme/launcher-zh.png)
+Clipboard history is off by default and starts recording only after you first enable it. It records text, links and path references to local files and folders. Upgrades preserve your enabled state and preferences, and existing text history remains compatible. A group of files copied in Finder becomes one history entry; the list shows names and a count, and you can search by file name or path.
 
-剪贴板历史默认关闭，仅在首次启用后开始记录文本、链接，以及本地文件和文件夹的路径引用。升级保留已有开启状态和偏好，已有文本历史仍可使用。从 Finder 复制的一组文件会保存为一条历史，列表显示名称和数量，可按文件名或路径搜索。
+Select a file history entry and press ⌘C to restore the whole group as file URLs on the system clipboard, then return to Finder and press ⌘V to copy the files. Return attempts to paste directly after checking the original target app, focus and Accessibility permission; if a check fails, the entry is only copied to the system clipboard and the app tells you. History stores paths without backing up files or reading their contents. Files moved or deleted from those paths cannot be recovered from history. Before copying, the app checks every file in the group on a background queue. A missing path or a two-second deadline preserves the current clipboard. Changing the query, selected entry or panel state cancels the pending action before any write.
 
-选中文件历史项后按 ⌘C，会把整组文件恢复为系统剪贴板上的文件 URL；回到 Finder 按 ⌘V 即可复制文件。按 Return 会在检查原目标应用、焦点和辅助功能权限后尝试直接粘贴；检查失败时仅复制到系统剪贴板并提示。历史只保存路径，不备份或读取文件正文；文件移动或删除后无法从历史恢复。恢复复制前在后台检查整组文件是否仍存在；任一路径失效或检查超过 2 秒时，保留当前剪贴板并提示。等待期间修改查询、切换选中项或关闭面板，会在写入前取消旧操作。
+Default retention is 7 days and up to 500 entries, configurable to 1–365 days and 1–10,000 entries. Each text entry is limited to 256 KiB in UTF-8. Each file entry allows up to 1,000 paths with a combined UTF-8 size of at most 256 KiB. Total history storage remains limited to 32 MiB. History, including file path references, is encrypted locally and protected with Keychain. Password managers are excluded by default; you can exclude other source apps, pause capture or clear history. Image content, file promises whose contents have not yet been generated, and items marked concealed, transient or autogenerated are not captured.
 
-默认保留 7 天、最多 500 条；可分别调整为 1…365 天和 1…10,000 条。单条文本的 UTF-8 大小最多 256 KiB；单条文件记录最多 1,000 个路径，所有路径的 UTF-8 总大小最多 256 KiB。历史总量最多 32 MiB，包含文件路径引用的数据在本机加密，并由钥匙串保护。默认排除密码管理器，也可排除其他来源应用；可暂停记录或清空历史。图片内容、文件承诺中尚未生成的内容，以及标记为敏感、临时或自动生成的剪贴板项目不会采集。
+If Keychain access fails, the original encrypted file is preserved, new entries stay in memory, and Settings shows the storage error. Click “Authorize History Storage” to request system authorization. After the original history loads successfully, it is merged with current entries and saved; failed authorization never overwrites the original file.
 
-钥匙串访问失败时保留原加密文件，新记录暂存内存，设置中显示保存错误。点击「授权保存历史」后才会请求系统授权；成功读取原历史后，与当前内存记录合并保存。授权失败时继续保留原文件，不覆盖已有历史。
+![Clipboard history using synthetic examples](./assets/readme/clipboard-en.png)
 
-![剪贴板历史，使用合成示例数据](./assets/readme/clipboard-zh.png)
+Expression calculations and unit conversions work offline. Enter a URL to open it. DuckDuckGo is the default web search engine, with Google and Bing as options. Choose a web result for a regular query or enter `web:` to request web search explicitly; the browser opens only when you activate that result. Typing does not send queries to a search engine.
 
-表达式计算和单位换算离线完成。输入网址可打开该网址；网页搜索默认 DuckDuckGo，可选 Google 或 Bing。普通查询可选择网页搜索结果，或用 `web:` 明确搜索；只有执行该结果时才会打开搜索引擎，输入过程中不会发送查询内容。
+In All, enter `100 usd in to rmb`, `100 USD to CNY`, or `100美元转人民币` to convert currencies; RMB is an alias for CNY. Results use [ECB daily reference rates through Frankfurter](https://frankfurter.dev/), show the rate date, and can be copied with Return or ⌘C. The first complete currency expression asynchronously fetches a fixed currency list; amounts and full queries remain on this Mac. Ordinary file searches, calculations, and unit conversions do not request exchange rates. Public rates are cached locally for 24 hours and refreshed in the background when expired. Cached results are labeled when the service is unavailable; without usable rates, press Return to retry. Reference rates exclude bank fees and live trading prices. Currency Conversion can be disabled in Settings → Search.
 
-在「全部」范围输入 `100 usd in to rmb`、`100 USD to CNY` 或 `100美元转人民币` 可换算货币；RMB 作为 CNY 的别名处理。汇率取自 [Frankfurter 提供的 ECB 每日参考汇率](https://frankfurter.dev/)，结果标明日期，Return 或 ⌘C 复制结果。首次完整货币查询会异步获取固定货币列表，金额和完整查询留在本机；普通文件搜索、计算和单位换算不发起汇率请求。公开汇率在本机缓存 24 小时，过期后后台刷新；服务不可用时标明缓存状态，无可用缓存时可按 Return 重试。参考汇率不包含银行手续费或实时交易价格。可在「设置 → 搜索」关闭汇率换算。
+![Currency conversion using synthetic rates and an example date](./assets/readme/currency-en.png)
 
-![汇率换算界面，使用合成汇率和示例日期](./assets/readme/currency-zh.png)
+## Search syntax
 
-## 搜索语法
-
-| 输入 | 意思 |
+| Type | Meaning |
 | --- | --- |
-| `wd`、`wendang` | 拼音首字母或全拼，能找到「文档」 |
-| `foo bar` | 同时包含 foo 和 bar |
-| `foo \| bar` | 包含 foo 或 bar |
-| `readme !node_modules` | 包含 readme，排除 node_modules 里的 |
-| `*.png` | 通配符，匹配整个名称 |
-| `~/Desktop/ png` | 只在桌面下面找 |
-| `ext:pdf;docx` | 按扩展名 |
-| `kind:image` | 按类型：folder、app、doc、image、video、audio、code、archive |
-| `file:`、`folder:` | 只要文件，或只要文件夹 |
-| `size:>10mb`、`size:1mb..5mb` | 按大小 |
-| `dm:today`、`dm:week`、`dm:2026-10-01` | 按修改时间 |
-| `regex:^IMG_\d+` | 正则表达式 |
+| `wd`, `wendang` | Pinyin initials or full pinyin, finds 文档 |
+| `foo bar` | Contains both foo and bar |
+| `foo \| bar` | Contains foo or bar |
+| `readme !node_modules` | Contains readme, not inside node_modules |
+| `*.png` | Wildcards match the whole name |
+| `~/Desktop/ png` | Only under the Desktop |
+| `ext:pdf;docx` | By extension |
+| `kind:image` | By kind: folder, app, doc, image, video, audio, code, archive |
+| `file:`, `folder:` | Files only, or folders only |
+| `size:>10mb`, `size:1mb..5mb` | By size |
+| `dm:today`, `dm:week`, `dm:2026-10-01` | By modification date |
+| `regex:^IMG_\d+` | Regular expressions |
 
-从终端或编辑器复制来的路径可以直接粘贴：`file://` 链接、带引号或转义的路径、末尾带 `:行:列` 的路径都能识别。在搜索框里按 ⌘/ 可以随时打开语法速查。
+You can paste paths straight from a terminal or editor: `file://` URLs, quoted or escaped paths and paths ending in `:line:column` all work. Press ⌘/ in the search field for a syntax reference.
 
-## 键盘操作
+## Keyboard
 
-| 按键 | 作用 |
+| Key | Action |
 | --- | --- |
-| <kbd>⌘</kbd><kbd>Space</kbd> | 打开搜索（默认） |
-| <kbd>⇧</kbd><kbd>⌘</kbd><kbd>F</kbd> | ⌘Space 注册失败时临时尝试的回退键 |
-| <kbd>⌘</kbd><kbd>0</kbd>…<kbd>4</kbd> | 切换全部、应用、文件、设置、剪贴板范围 |
-| <kbd>⌥</kbd><kbd>⌘</kbd><kbd>1</kbd>…<kbd>9</kbd> | 选择文件类型 |
-| <kbd>Return</kbd> | 执行结果：打开、复制计算结果，或粘贴剪贴板条目 |
-| <kbd>⌘</kbd><kbd>Return</kbd> | 文件：在访达中显示 |
-| <kbd>⌘</kbd><kbd>Y</kbd> | 文件：Quick Look；剪贴板：多行预览 |
-| <kbd>⌘</kbd><kbd>C</kbd> | 优先复制选中文字，否则复制当前结果的路径、文本或网址；文件剪贴板历史项恢复整组文件 URL |
-| <kbd>⌥</kbd><kbd>⌘</kbd><kbd>C</kbd> | 文件：拷贝名称 |
-| <kbd>⌘</kbd><kbd>⌫</kbd> | 清空整个搜索框；文件和剪贴板记录的删除使用右键菜单 |
-| <kbd>Tab</kbd> | 在文件范围内切换文件类型 |
-| <kbd>⌘</kbd><kbd>/</kbd> | 语法速查 |
+| <kbd>⌘</kbd><kbd>Space</kbd> | Open search (default) |
+| <kbd>⇧</kbd><kbd>⌘</kbd><kbd>F</kbd> | Temporary fallback if ⌘Space cannot register |
+| <kbd>⌘</kbd><kbd>0</kbd>…<kbd>4</kbd> | Switch All, Apps, Files, Settings and Clipboard scopes |
+| <kbd>⌥</kbd><kbd>⌘</kbd><kbd>1</kbd>…<kbd>9</kbd> | Choose file type |
+| <kbd>Return</kbd> | Execute the result: open, copy a calculation, or paste a clipboard entry |
+| <kbd>⌘</kbd><kbd>Return</kbd> | Files: show in Finder |
+| <kbd>⌘</kbd><kbd>Y</kbd> | Files: Quick Look; clipboard: multiline preview |
+| <kbd>⌘</kbd><kbd>C</kbd> | Copy selected query text first, otherwise the result's path, text or URL; file clipboard entries restore the whole group as file URLs |
+| <kbd>⌥</kbd><kbd>⌘</kbd><kbd>C</kbd> | Files: copy name |
+| <kbd>⌘</kbd><kbd>⌫</kbd> | Clear the entire search field; use the context menu to delete files or clipboard entries |
+| <kbd>Tab</kbd> | Cycle file types in the Files scope |
+| <kbd>⌘</kbd><kbd>/</kbd> | Syntax reference |
 
-结果也可以直接拖到别的应用里。
+You can also drag results into other apps.
 
 ## Oil Find Pro
 
-本节的 Pro 功能、安装包和许可说明对应上游发行版。本 fork 从公开源码构建时不包含 Pro；其官方应用更新通道保持关闭。
+The Pro features, downloads and licensing described here refer to [upstream releases](https://github.com/oil-oil/oil-find/releases). Building this fork from public source does not include Pro, and its official app-update channel stays disabled.
 
-公开应用代码采用 MIT 许可证。Oil Find Pro 是独立的闭源付费扩展，¥49（其他地区 $9.99）一次买断，并提供 7 天免费试用。免费版始终免费、开源；Pro 和免费版使用同一个安装包。
+The public app code is licensed under MIT. Oil Find Pro is a separate closed-source paid add-on: $9.99 once (¥49 in mainland China), with a 7-day free trial. The free version stays free and open source; Pro and Free use the same download.
 
-| | 免费版 | Pro |
+| | Free | Pro |
 | --- | :---: | :---: |
-| 按文件名搜索：拼音、通配符、正则，按类型、大小、时间筛选 | ✓ | ✓ |
-| 实时更新、Quick Look 预览、拖放、全键盘操作 | ✓ | ✓ |
-| 排除文件夹和文件类型、应用内更新 | ✓ | ✓ |
-| 外置磁盘：插上就建立索引，拔掉后也能搜到 | | ✓ |
-| 图片内容：截图、照片里的文字与画面 | | ✓ |
-| 文档内容：PDF、Word、PowerPoint、Excel、Pages、Markdown 等 | | ✓ |
-| 源码 | 开源，MIT | 闭源 |
-| 价格 | 免费 | ¥49（其他地区 $9.99）一次买断 |
+| Search by file name: pinyin, wildcards, regex, filters by kind, size and date | ✓ | ✓ |
+| Live updates, Quick Look, drag and drop, full keyboard control | ✓ | ✓ |
+| Excluded folders and file types, in-app updates | ✓ | ✓ |
+| External drives: indexed and searchable while plugged in | ✓ | ✓ |
+| External drives stay searchable after unplugging | | ✓ |
+| Image content: text and objects in screenshots and photos | | ✓ |
+| Document content: PDF, Word, PowerPoint, Excel, Pages, Markdown and more | | ✓ |
+| Source code | Open source, MIT | Closed source |
+| Price | Free | $9.99 once (¥49 in mainland China) |
 
-Pro 和免费版是同一个安装包：
+Pro and the free version are the same download:
 
-- 从 Releases 或官网下载后，免费功能直接可用，不激活也不会过期。
-- 想用 Pro，在设置的 Oil Find Pro 分区点「免费试用 7 天」，或输入授权码。试用结束只停用 Pro 功能，其他照常。
-- 从源码构建得到的是不含 Pro 的免费版。
-- 图片和文档都在本机处理，不上传。
+- After downloading from Releases or the website, every free feature works right away and never expires, with no activation.
+- To use Pro, open the Oil Find Pro section in Settings and click Start 7-Day Free Trial, or enter a license key. When a trial ends, only Pro features turn off.
+- Building from source gives you the free version, without Pro.
+- Images and documents are processed on your Mac and never uploaded.
 
-购买和详情见 [find.oiloil.org/pro](https://find.oiloil.org/pro)。
+Buy it or read more at [find.oiloil.org/en/pro](https://find.oiloil.org/en/pro).
 
-## 安装
+## Install
 
-1. 从 [Releases](https://github.com/oil-oil/oil-find/releases/latest) 下载 `Oil-Find.zip`，解压后把 Oil Find 拖进「应用程序」。
-2. 第一次打开时，macOS 会拦下来，因为它没有经过 Apple 公证。到「系统设置 → 隐私与安全性」，在页面下方点「仍要打开」。
-3. 按 ⌘Space 开始搜索。如果快捷键注册失败，应用会临时尝试 ⇧⌘F；你也可以按上方说明调整 Spotlight 系统快捷键设置后，在应用设置中重试。
-4. 可选：授予「完全磁盘访问权限」后，邮件附件和其他应用的数据也能搜到。不授予也能正常使用。
+1. Download `Oil-Find.zip` from [Releases](https://github.com/oil-oil/oil-find/releases/latest), unzip it and drag Oil Find into Applications.
+2. The first time you open it, macOS blocks it because it isn't notarized by Apple. Go to System Settings → Privacy & Security and click Open Anyway near the bottom.
+3. Press ⌘Space and start typing. If the shortcut cannot register, the app temporarily tries ⇧⌘F. You can adjust the Spotlight shortcut in System Settings as described above, then retry from Oil Find's Settings.
+4. Optional: grant Full Disk Access to also search mail attachments and other apps' data. Oil Find works fine without it.
 
-此 fork 构建关闭了上游官方应用更新通道，不会提示或安装上游官方版本。请从本 fork 获取更新构建（如有），或自行构建。
+Fork builds disable the upstream official app-update channel. They do not notify you about or install upstream releases; use a build published by this fork, when available, or build from source.
 
-源码用户可运行 `scripts/uninstall.sh`，确认后删除应用、本地索引、剪贴板历史、偏好设置及剪贴板加密密钥。手动卸载时退出应用并删除「应用程序」里的 Oil Find 和 `~/Library/Application Support/Oil Find`；钥匙串中的 `com.oiloil.find.clipboard-history` 项可一并删除。
+Source users can run `scripts/uninstall.sh` and confirm removal of the app, local index, clipboard history, preferences and clipboard encryption key. For manual removal, quit Oil Find and delete it from Applications and `~/Library/Application Support/Oil Find`; you can also remove the `com.oiloil.find.clipboard-history` Keychain item.
 
-## 从源码构建
+## Build from source
 
-应用运行需要 macOS 14 或更新版本。源码构建需要包含 macOS 15.4 或更新 SDK 的 Xcode；CI 使用 Xcode 16.4（macOS 15.5 SDK），项目保持 Swift 5 语言模式和 macOS 14 部署目标。
+The app runs on macOS 14 or later. Source builds require Xcode with macOS SDK 15.4 or later; CI uses Xcode 16.4 (macOS 15.5 SDK). The project retains Swift 5 language mode and a macOS 14 deployment target.
 
 ```sh
 git clone --branch codex/spotlight-launcher https://github.com/Sigurd-git/oil-Spotlight.git
 cd oil-Spotlight
 swift test
-scripts/build-app.sh   # 生成 build/Oil Find.app
-scripts/install.sh     # 构建并安装到「应用程序」
+scripts/build-app.sh   # builds build/Oil Find.app
+scripts/install.sh     # builds and installs into Applications
 ```
 
-构建脚本允许用 `OILFIND_BUILD_SYSTEM` 选择 SwiftPM 后端。若仅使用新版 Command Line Tools，默认后端生成的 SDK 标记未通过正式产物检查，可使用 `OILFIND_BUILD_SYSTEM=native scripts/build-app.sh`；同一选项也适用于安装和剪贴板升级验证脚本。完整 XCTest 仍需 Xcode 提供测试框架。
+Set `OILFIND_BUILD_SYSTEM` to select a SwiftPM backend. With recent Command Line Tools, if the default backend writes an SDK marker that fails release verification, use `OILFIND_BUILD_SYSTEM=native scripts/build-app.sh`. The same option applies to the install and clipboard-upgrade scripts. The complete XCTest suite still needs the test frameworks supplied by Xcode.
 
-未配置稳定签名身份时，自己构建的应用使用临时签名；重新构建后可能需要再次授予完全磁盘访问权限和旧剪贴板密钥访问权限。若剪贴板设置显示保存错误，点击「授权保存历史」并手动完成 macOS 钥匙串授权。原加密历史在授权失败时保留，新增内容暂存内存。
+Without a stable signing identity, source builds are ad-hoc signed. Rebuilding may require granting Full Disk Access and access to an existing clipboard key again. If Clipboard Settings shows a storage error, click “Authorize History Storage” and complete the macOS Keychain prompt manually. Failed authorization preserves the original encrypted history; new entries remain in memory.
 
-需要在本机持续更新时，可配置固定的本地代码签名身份：
+Before submitting a PR, run `scripts/verify-release-app.sh "build/Oil Find.app"` to check the release bundle. `scripts/verify-clipboard-upgrade.sh` uses an isolated keychain and a temporary stable signing identity to verify real encrypted history across shutdown and upgrades, without accessing the user's history. `scripts/compare-engine-performance.py` compares release file engines; see the [validation record](./docs/SPOTLIGHT_VALIDATION.md) for usage and measurement limits.
 
-```sh
-scripts/create-signing-cert.sh --local
-OILFIND_REQUIRE_STABLE_SIGNING=1 scripts/build-app.sh
-```
+## Privacy
 
-私钥保存在登录钥匙串，初始化访问规则仅允许 Apple 的 `/usr/bin/codesign`。本地配置保存在 `~/Library/Application Support/Oil Find Signing/identity.plist`，只包含固定证书指纹及钥匙串路径；不提交到仓库。脚本不添加系统信任根、不改变钥匙串搜索列表，也不放宽剪贴板密钥的访问规则。签名固定 `com.oiloil.find` 和证书 leaf 指纹作为 designated requirement，构建后验证身份；已配置的身份丢失或损坏时停止，`OILFIND_REQUIRE_STABLE_SIGNING=1` 还会在缺少配置时禁止退回临时签名。`OILFIND_LOCAL_SIGNING_CONFIG` 可指定配置文件，`OILFIND_SIGNING_KEYCHAIN` 可用于初始化独立钥匙串。
+- The file-search engine reads file names, sizes and modification dates only, never file contents; its index stays on your Mac in `~/Library/Application Support/Oil Find/`. Pro image and document processing also stays on your Mac.
+- Clipboard history is off by default. When enabled, it saves text, links and local file/folder path references, encrypted locally and protected with Keychain. File references store paths without reading contents or backing up files. You can pause, clear or exclude source apps; upgrades preserve your enabled state and preferences.
+- The source app is estimated from the frontmost app at copy time, so not every sensitive item can be identified. If the key is unavailable or history is damaged, the original file is preserved, an error is shown and new entries stay in memory.
+- Web search defaults to DuckDuckGo, with Google and Bing as options. A normal query can offer a web-search result, or use `web:` to request one explicitly. The search engine opens only when you execute that result; typing does not send queries.
+- Currency Conversion can be turned off in Search settings. A complete currency expression asynchronously requests a fixed list of public ECB rates through Frankfurter, without amounts, full queries, clipboard data, or file contents. Its cache stores only public rates, source dates, and retrieval time; results show the reference date and cache status.
+- Fork builds do not connect to the upstream official app-update service. Pro periodically verifies its license online, sending only the license key, device identifier and device name.
 
-现代登录钥匙串还按 CDHash 对自签名程序分区；只有固定证书仍不足以让不同构建复用旧密钥授权。本地固定签名构建因此嵌入 `OilFindClipboardKeyService.xpc`，并在配置目录的 `clipboard-key-service/` 缓存已签名的服务。正常更新只复制该服务，不重编或重签；两端 XPC 连接均核验对方的应用标识和实际证书指纹，服务只访问 Oil Find 的固定密钥项目。密钥只通过验证后的本机 XPC 返回内存，不写入文件或日志，历史密文及加密格式保持兼容。
+## Current limits
 
-首次使用新签名私钥时，macOS 可能要求本人允许 `codesign` 使用它；首次迁移到密钥服务时也可能需要本人在「授权保存历史」触发的系统弹窗选择「始终允许」。之后普通应用更新沿用同一服务二进制。配置目录另存 `key-service-identity.plist` 身份记录，缓存丢失或与此记录不符时停止，防止自动重建改变 CDHash。服务源码、证书或缓存哈希变化时同样停止，保留旧应用及缓存，需要明确迁移；锁定钥匙串、私钥丢失也需处理。无参数运行 `scripts/create-signing-cert.sh` 在首次创建时额外生成由本人设置密码的加密备份；`--local` 不导出长期私钥备份，完成后仅在钥匙串中保留私钥。已存在身份时仅复用，并说明本次是否已有备份。Git 提交的 SSH/1Password 签名是另一套身份，不受此代码签名配置影响。
+- Apple silicon and macOS 14 or later only.
+- Free file search matches names only. External drives are searchable while connected; searching them after unplugging, plus image or document content search, is part of upstream Oil Find Pro. Network volumes are not supported yet.
+- Clipboard history is an optional, separate feature; file entries store path references. Moved or deleted files cannot be recovered. If a path check fails for the group, the current clipboard is preserved and you are asked to copy the files again.
 
-提交 PR 前可运行 `scripts/verify-release-app.sh "build/Oil Find.app"` 检查正式产物。`scripts/verify-clipboard-upgrade.sh` 使用隔离钥匙串和临时稳定签名，验证真实加密历史在退出和升级后恢复；不使用或修改用户的剪贴板历史。引擎对照脚本为 `scripts/compare-engine-performance.py`，运行方法和测量边界见 [验收记录](./docs/SPOTLIGHT_VALIDATION.md)。
+## Project layout
 
-## 隐私
-
-- 文件搜索引擎仅读取文件名、大小和修改时间，不读取文件内容；索引保存在本机的 `~/Library/Application Support/Oil Find/`。Pro 图片和文档内容也在本机处理，不上传。
-- 剪贴板历史默认关闭；启用后保存文本、链接和本地文件/文件夹路径引用，在本机加密并由钥匙串保护。文件引用只保存路径，不读取正文或备份文件。可暂停、清空或排除来源应用，升级保留已有开启状态和偏好。
-- 来源应用按复制时的前台应用估计，无法保证识别所有敏感内容。密钥不可用或历史损坏时保留原文件并显示错误，新内容暂存内存。
-- 网页搜索默认 DuckDuckGo，也可选择 Google 或 Bing。普通查询会提供网页搜索候选，输入 `web:` 可明确请求搜索；只有用户执行该候选时才打开搜索引擎，输入过程中不发送查询内容。
-- 汇率换算可在搜索设置中关闭；完整货币表达式会异步请求 Frankfurter 的固定 ECB 汇率列表，不发送金额、完整查询、剪贴板或文件内容。缓存只保存公开汇率、来源日期和取得时间；结果标明参考日期及缓存状态。
-- fork 构建不会连接上游官方应用更新服务。Pro 授权会定期联网校验，只发送授权码、设备标识和设备名。
-
-## 目前的限制
-
-- 只支持 Apple 芯片和 macOS 14 及以上。
-- 免费文件搜索仅按名称检索；外置磁盘、图片和文档内容搜索属于 Oil Find Pro。网络卷暂不支持。
-- 剪贴板历史是独立的可选功能，文件记录只保存路径引用。路径移动或删除后无法恢复；整组路径检查失败时保留当前剪贴板，需重新复制文件。
-
-## 项目结构
-
-| 目录 | 内容 |
+| Folder | Contents |
 | --- | --- |
-| `Sources/COilFind` | C 代码：批量读取目录、名称比较、搜索评分 |
-| `Sources/OilFindCore` | 扫描、索引、文件查询、实时更新、持久化与应用更新 |
-| `Sources/OilFindApp` | AppKit 应用库、搜索面板、跨来源协调器、剪贴板与系统集成 |
-| `Sources/OilFind` | 可执行应用的组装入口 |
-| `Sources/oilfind-cli` | 命令行工具，用来测速和排查问题 |
-| `site` | 官网 [find.oiloil.org](https://find.oiloil.org) |
+| `Sources/COilFind` | C: batched directory reads, name comparison, search scoring |
+| `Sources/OilFindCore` | Scanning, indexing, file queries, live updates, persistence and app updates |
+| `Sources/OilFindApp` | AppKit app library, search panel, cross-source coordinator, clipboard and system integration |
+| `Sources/OilFind` | Executable app assembly entry point |
+| `Sources/oilfind-cli` | Command-line tool for benchmarks and troubleshooting |
+| `site` | The website, [find.oiloil.org](https://find.oiloil.org/en) |
 
-索引的数据结构和设计约束见 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)，开发约定见 [AGENTS.md](./AGENTS.md)。
+See [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) for the index design and [AGENTS.md](./AGENTS.md) for development conventions.
 
-## 参与贡献
+## Contributing
 
-欢迎向本 fork 提 Issue 和 Pull Request，改进文件搜索和统一搜索功能。上游专注文件搜索；Pro 功能（外置磁盘、图片和文档内容）由其私有仓库维护，上游不接受实现这些功能的 Pull Request。
+Issues and pull requests that improve file search and unified search are welcome in this fork. Upstream focuses on file search; Pro features for searching files on unplugged external drives and searching image or document contents are maintained privately, and upstream does not accept pull requests implementing those features.
 
-本次扩展的自动化、性能及真机验证范围见 [docs/SPOTLIGHT_VALIDATION.md](./docs/SPOTLIGHT_VALIDATION.md)。
+See [docs/SPOTLIGHT_VALIDATION.md](./docs/SPOTLIGHT_VALIDATION.md) for this extension's automated, performance and hardware validation scope.
 
-## 许可证
+## License
 
-本仓库的代码使用 [MIT](./LICENSE) 许可证。Pro 模块不在本仓库里，不开源；Releases 和官网的安装包包含它。
+The code in this repository is licensed under [MIT](./LICENSE). The Pro module isn't in this repository and isn't open source; the builds on Releases and the website include it.
