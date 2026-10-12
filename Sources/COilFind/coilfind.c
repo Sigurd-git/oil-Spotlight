@@ -1,8 +1,5 @@
 #include "coilfind.h"
 #include <errno.h>
-#include <pthread.h>
-#include <wctype.h>
-#include <xlocale.h>
 #include <string.h>
 #include <sys/attr.h>
 #include <sys/vnode.h>
@@ -14,17 +11,6 @@
 #if defined(__aarch64__)
 #include <arm_neon.h>
 #endif
-
-// Unicode extension matching uses the system locale without allocating per name.
-static locale_t extension_locale;
-static pthread_once_t extension_locale_once = PTHREAD_ONCE_INIT;
-static void initialize_extension_locale(void) {
-    extension_locale = newlocale(LC_CTYPE_MASK, "en_US.UTF-8", NULL);
-}
-uint32_t sift_lowercase_scalar(uint32_t scalar) {
-    pthread_once(&extension_locale_once, initialize_extension_locale);
-    return extension_locale ? (uint32_t)towlower_l((wint_t)scalar, extension_locale) : scalar;
-}
 
 static inline uint8_t fold(uint8_t x) { return (uint8_t)(x | (((uint8_t)(x - 'A') < 26) ? 0x20 : 0)); }
 static inline int eq(uint8_t a, uint8_t b, int cs) { return cs ? a == b : fold(a) == b; }

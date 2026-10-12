@@ -2,7 +2,6 @@
 #define COILFIND_H
 #include <stddef.h>
 #include <stdint.h>
-uint32_t sift_lowercase_scalar(uint32_t scalar);
 /* AND clauses of OR terms over fixed-size Bloom blocks; bits are prehashed. */
 typedef struct { uint32_t start, count; } SiftBloomSpan;
 size_t sift_filter_bloom(const uint8_t *blocks, size_t stride, uint32_t first, uint32_t end,

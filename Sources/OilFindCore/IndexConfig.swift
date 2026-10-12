@@ -186,7 +186,10 @@ public struct IndexConfig {
     }
     private static func lowercaseScalar(_ scalar: UInt32) -> UInt32 {
         if scalar < 128 { return scalar >= 65 && scalar <= 90 ? scalar + 32 : scalar }
-        let lower = sift_lowercase_scalar(scalar)
+        // Case data comes from the standard library: libc's locale tables differ between macOS
+        // versions and miss pairs such as capital sharp S. A one-scalar mapping stays inline.
+        guard let value = Unicode.Scalar(scalar),
+              let lower = value.properties.lowercaseMapping.unicodeScalars.first?.value else { return scalar }
         return lower == 0x3c2 ? 0x3c3 : lower
     }
     private static func nextScalar(_ bytes: UnsafeBufferPointer<UInt8>, offset: inout Int) -> UInt32? {
