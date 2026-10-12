@@ -167,7 +167,7 @@ export const dict: Record<Language, LandingCopy> = {
   },
   en: {
     title: 'Oil Find: files, apps and clipboard in one search panel',
-    description: 'Press ⌘Space to open a native macOS search panel. Find files and apps, opt in to clipboard history for text, links and local file path references, calculate offline and open web searches only when you submit. The free version is MIT licensed and stays free; Pro is a separate closed-source paid add-on.',
+    description: '⌘Space searches files, apps, settings & clipboard. Optional, locally encrypted clipboard history; web opens on submit. Fork builds disable upstream updates.',
     'nav.speed': 'Features', 'nav.syntax': 'Syntax', 'nav.github': 'GitHub', 'nav.download': 'Download', 'nav.lang': '中文',
     lead: ['Files, apps and clipboard, ', 'in one search panel'],
     placeholder: 'Try it here: wd, png, readme',

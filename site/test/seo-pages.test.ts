@@ -32,6 +32,12 @@ it.each(['zh', 'en'] as const)('uses semantic syntax and keyboard tables and the
   const section = readme.split(lang === 'zh' ? '## 键盘操作' : '## Keyboard')[1].split('\n## ')[0];
   const rows = section.split('\n').filter(line => line.startsWith('| <kbd>')).map(line => line.split('|').slice(1, 3).map(value => value.replace(/<\/?kbd>/g, '').trim()));
   expect(keyboardRows[lang]).toEqual(rows);
+  const clearQuery = keyboardRows[lang].find(([key]) => key === '⌘⌫');
+  const expectedClearQuery = lang === 'zh'
+    ? '清空整个搜索框；文件和剪贴板记录的删除使用右键菜单'
+    : 'Clear the entire search field; use the context menu to delete files or clipboard entries';
+  expect(clearQuery).toEqual(['⌘⌫', expectedClearQuery]);
+  expect(clearQuery).toEqual(['⌘⌫', specification.keyboard[lang].clearQuery]);
   for (const { queries } of syntaxRows(lang)) for (const query of queries) expect(html).toContain(`aria-label="${referenceCopy[lang].copy}: ${query.replace(/>/g, '&gt;')}"`);
 });
 
