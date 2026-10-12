@@ -29,13 +29,19 @@ export function syntaxRows(lang: Language): { queries: string[]; meaning: string
 
 export const keyboardRows: Record<Language, [string, string][]> = {
   zh: [
-    ['⇧⌘F', '打开搜索，可以在设置里改'], ['Return', '打开'], ['⌘Return', '在访达中显示'],
-    ['空格 / ⌘Y', '用 Quick Look 预览（选中结果后按空格）'], ['⌘C / ⌥⌘C', '拷贝路径、拷贝名称'],
-    ['⌘⌫', '移到废纸篓'], ['Tab / ⌘1…9', '切换类型'], ['⌘/', '语法速查'],
+    ['⌘Space', '打开搜索（默认）'], ['⇧⌘F', '⌘Space 注册失败时的临时回退'],
+    ['⌘0…4', '切换全部、应用、文件、设置、剪贴板范围'], ['⌥⌘1…9', '选择文件类型'],
+    ['Return', '执行结果：打开、复制计算结果，或粘贴剪贴板条目'], ['⌘Return', '文件：在访达中显示'],
+    ['⌘Y', '文件：Quick Look；剪贴板：多行预览'], ['⌘C', '优先复制选中文字，否则复制当前结果的路径、文本或网址；文件剪贴板历史项恢复整组文件 URL'],
+    ['⌥⌘C', '文件：拷贝名称'], ['⌘⌫', '清空整个搜索框；文件和剪贴板记录的删除使用右键菜单'],
+    ['Tab', '在文件范围内切换文件类型'], ['⌘/', '语法速查'],
   ],
   en: [
-    ['⇧⌘F', 'Open search (configurable in Settings)'], ['Return', 'Open'], ['⌘Return', 'Show in Finder'],
-    ['Space / ⌘Y', 'Quick Look (Space after selecting a result)'], ['⌘C / ⌥⌘C', 'Copy path, copy name'],
-    ['⌘⌫', 'Move to Trash'], ['Tab / ⌘1…9', 'Switch kind'], ['⌘/', 'Syntax reference'],
+    ['⌘Space', 'Open search (default)'], ['⇧⌘F', 'Temporary fallback if ⌘Space cannot register'],
+    ['⌘0…4', 'Switch All, Apps, Files, Settings and Clipboard scopes'], ['⌥⌘1…9', 'Choose file type'],
+    ['Return', 'Execute the result: open, copy a calculation, or paste a clipboard entry'], ['⌘Return', 'Files: show in Finder'],
+    ['⌘Y', 'Files: Quick Look; clipboard: multiline preview'], ['⌘C', "Copy selected query text first, otherwise the result's path, text or URL; file clipboard entries restore the whole group as file URLs"],
+    ['⌥⌘C', 'Files: copy name'], ['⌘⌫', 'Clear the entire search field; use the context menu to delete files or clipboard entries'],
+    ['Tab', 'Cycle file types in the Files scope'], ['⌘/', 'Syntax reference'],
   ],
 };

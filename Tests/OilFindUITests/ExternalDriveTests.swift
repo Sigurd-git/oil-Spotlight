@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 @testable import OilFindCore
 import DiskArbitration
@@ -114,6 +115,40 @@ final class ExternalDriveTests: XCTestCase {
         XCTAssertTrue(catalog.searchSources().isEmpty)
         catalog.updateMounted([])
         XCTAssertEqual(indexes.count, 2, "Disconnecting never creates an offline index")
+    }
+
+    func testExternalCatalogPublishesUnifiedResultsAndRejectsActionsBeforeEjectRefresh() throws {
+        _ = NSApplication.shared
+        let index = Index()
+        let catalog = ExternalDriveCatalog(directory: temporaryDirectory(), monitor: Monitor(),
+                                          initialPreferences: .init(), makeIndex: { _, _, _ in index })
+        let controller = SearchViewController(snapshot: true)
+        defer { catalog.onSourcesChange = nil; catalog.stop() }
+        controller.additionalSources = { catalog.searchSources() }
+        catalog.onSourcesChange = { controller.sourcesChanged() }
+        try controller.prepareLauncherSnapshot(SearchSnapshot(raw: "README", scope: .all))
+        // Snapshot fixtures omit the live-source hook installed by normal controllers.
+        controller.results.currentSource = { id in catalog.searchSources().first { $0.id == id } }
+
+        // The startup index is absent; a connected external drive can publish by itself.
+        catalog.updateMounted([volume])
+        index.complete(store(path: volume.path))
+        try waitUntil("external result in the unified scope") {
+            controller.results.selectedItem?.source.id == self.uuid
+        }
+        XCTAssertEqual(controller.scopes.scope, .all)
+        XCTAssertEqual(controller.results.selectedItem?.path, volume.path + "/README.md")
+
+        // Approval invalidates live sources before the queued UI refresh runs.
+        catalog.prepareToEject(device: volume.device)
+        XCTAssertTrue(catalog.searchSources().isEmpty)
+        XCTAssertNil(controller.results.selectedItem)
+        try waitUntil("external rows withdrawn after eject") {
+            guard let found = controller.results.snapshot else { return false }
+            return found.filePresentation == nil || found.filePresentation?.sources.isEmpty == true
+        }
+        XCTAssertEqual(controller.scopes.scope, .all)
+        XCTAssertEqual(index.stops, 1)
     }
 
     func testPartitionUnmountLeavesSiblingOnlineAndMasterSwitchRestoresCancelledEject() throws {
