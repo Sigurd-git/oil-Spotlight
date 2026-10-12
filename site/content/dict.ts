@@ -123,8 +123,8 @@ export const dict: Record<Language, LandingCopy> = {
     ],
   },
   en: {
-    title: "Oil Find: Everything for Mac, a free and open-source file search app",
-    description: "Press ⇧⌘F and results appear with every keystroke, in under 10 ms. Wildcards, regex, pinyin, live updates and external drives, without Spotlight. Free and open source; Pro adds search inside images and documents.",
+    title: "Oil Find: Everything for Mac. Free, open-source file search",
+    description: "Press ⇧⌘F and results appear as you type, in under 10 ms. Wildcards, regex, pinyin, live updates and external drives. Free and open source.",
     'nav.speed': 'Speed', 'nav.syntax': 'Syntax', 'nav.github': 'GitHub', 'nav.download': 'Download', 'nav.lang': '中文',
     lead: ['Any file on your Mac, ', 'in under 10 ms'],
     placeholder: 'Try it here: wd, png, readme',
@@ -178,7 +178,7 @@ export const dict: Record<Language, LandingCopy> = {
   },
 };
 
-export type SitePage = 'home' | 'activated' | 'recover' | 'changelog' | 'pro';
+export type SitePage = 'home' | 'activated' | 'recover' | 'changelog' | 'pro' | 'syntax' | 'everything-for-mac';
 export function pagePath(lang: Language, page: SitePage = 'home'): string {
   const prefix = lang === 'en' ? '/en' : '';
   return page === 'home' ? prefix || '/' : prefix + '/' + page;
@@ -267,8 +267,8 @@ export const proCopy = {
   },
   en: {
     title: 'Oil Find Pro',
-    pageTitle: "Oil Find Pro: search inside images and documents, and drives you’ve unplugged",
-    description: "Search the text in your screenshots, photos, PDFs and Office documents, all processed on your Mac, and keep external drives searchable after you unplug them. $9.99 once, with a 7-day free trial.",
+    pageTitle: "Oil Find Pro: search inside images and documents on Mac",
+    description: "Search the text in screenshots, photos, PDFs and Office documents, all on your Mac, and keep unplugged drives searchable. $9.99 once, 7-day trial.",
     subtitle: "The free version stays free and open source. If you have lots of screenshots and documents, or drives you plug in and out, upgrade to Pro.",
     query: 'invoice',
     rows: [

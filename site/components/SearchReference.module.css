@@ -1,0 +1,29 @@
+.article { margin-top: 9vh; font-size: 14.5px; line-height: 1.7; }
+.article h1 { font: 600 30px/1.3 var(--display); margin: 0 0 20px; }
+.article h2 { font: 600 24px/1.3 var(--display); margin: 0 0 16px; }
+.article section { margin-top: 48px; }
+.article p, .article li, .article dd { color: var(--ink2); }
+.article p { margin: 0; }
+.article ul { padding-left: 22px; margin: 0; }
+.article li + li { margin-top: 12px; }
+.article dl { margin: 0; }
+.article dl > div { padding: 24px 0; border-bottom: 1px solid var(--hair); }
+.article dt { font-weight: 600; margin-bottom: 8px; }
+.article dd { margin: 0; }
+.table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 13.5px; }
+.table th, .table td { text-align: left; vertical-align: top; padding: 16px 12px; border-bottom: 1px solid var(--hair); overflow-wrap: anywhere; }
+.table th { font-weight: 500; }
+.table thead th { font-weight: 600; }
+.table th:first-child { width: 43%; }
+.copyQuery { display: block; }
+.copyQuery + .copyQuery { margin-top: 8px; }
+.copyQuery button { max-width: 100%; border: 0; border-radius: 6px; padding: 4px 6px; background: var(--tint); color: var(--blue-deep); text-align: left; cursor: pointer; }
+.copyQuery button:hover { background: var(--sel); }
+.copyQuery code { font: 13px/1.6 var(--mono); overflow-wrap: anywhere; }
+.copyStatus { display: block; font: 12px/1.5 var(--ui); color: var(--ink2); }
+.copyStatus:empty { display: none; }
+.actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 48px; }
+@media (max-width: 640px) {
+  .article h1 { font-size: 28px; }
+  .table th, .table td { padding: 12px 8px; }
+}

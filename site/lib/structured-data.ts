@@ -1,4 +1,5 @@
 import { dict, footerQuestions, pagePath, proCopy, type Language } from '@/content/dict';
+import { everythingCopy } from '@/content/search-reference';
 import { releases } from '@/content/releases';
 import { siteURL } from './metadata';
 
@@ -12,7 +13,8 @@ export function faqSchema(questions: { q: string; a: string }[]) {
   };
 }
 
-export function pageStructuredData(lang: Language, page: 'home' | 'pro') {
+export function pageStructuredData(lang: Language, page: 'home' | 'pro' | 'everything-for-mac') {
+  if (page === 'everything-for-mac') return { '@context': 'https://schema.org', ...faqSchema(everythingCopy[lang].faq) };
   if (page === 'pro') return { '@context': 'https://schema.org', ...faqSchema(proCopy[lang].faq) };
   return {
     '@context': 'https://schema.org',

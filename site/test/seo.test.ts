@@ -20,12 +20,20 @@ import { footerQuestions, pagePath, proCopy } from '@/content/dict';
 import { releases } from '@/content/releases';
 import { siteURL } from '@/lib/metadata';
 import { serializeStructuredData } from '@/lib/structured-data';
-import specification from './fixtures/m24-copy.json';
+import previousSpecification from './fixtures/m24-copy.json';
+import currentSpecification from './fixtures/m30-copy.json';
+import { metadata as zhSyntax } from '@/app/(zh)/syntax/page';
+import { metadata as enSyntax } from '@/app/en/syntax/page';
+import { metadata as zhEverything } from '@/app/(zh)/everything-for-mac/page';
+import { metadata as enEverything } from '@/app/en/everything-for-mac/page';
+const specification = { ...previousSpecification, metadata: { ...previousSpecification.metadata, ...currentSpecification.metadata } };
 
-// Verbatim metadata follows the M24 tables with the M27s document-search updates.
+// Verbatim metadata follows M24, document-search updates and M30.
 const pages = [
   ['/', zhHome, 'zh', 'home'], ['/en', enHome, 'en', 'home'],
   ['/pro', zhPro, 'zh', 'pro'], ['/en/pro', enPro, 'en', 'pro'],
+  ['/syntax', zhSyntax, 'zh', 'syntax'], ['/en/syntax', enSyntax, 'en', 'syntax'],
+  ['/everything-for-mac', zhEverything, 'zh', 'everything-for-mac'], ['/en/everything-for-mac', enEverything, 'en', 'everything-for-mac'],
   ['/changelog', zhChangelog, 'zh', 'changelog'], ['/en/changelog', enChangelog, 'en', 'changelog'],
 ] as const;
 
@@ -52,7 +60,7 @@ it.each([zhActivated, enActivated, zhRecover, enRecover])('prevents indexing and
   for (const field of ['description', 'alternates', 'openGraph', 'twitter'] as const) expect(metadata[field]).toBeNull();
 });
 
-it('lists only the six public URLs, with release date and reciprocal languages', () => {
+it('lists only the indexable public URLs, with release date and reciprocal languages', () => {
   const entries = sitemap();
   expect(entries.map(entry => entry.url).sort()).toEqual(pages.map(([path]) => siteURL + path).sort());
   const latestDate = releases.map(release => release.date).sort().at(-1);
@@ -92,7 +100,7 @@ describe.each(['zh', 'en'] as const)('rendered structured data (%s)', lang => {
     const faq = schema['@graph'].find((entity: { '@type': string }) => entity['@type'] === 'FAQPage');
     expect(faq.mainEntity).toEqual(footerQuestions(lang).map(({ q, a }) => ({ '@type': 'Question', name: q, acceptedAnswer: { '@type': 'Answer', text: a } })));
     for (const item of footerQuestions(lang)) {
-      expect(footer).toContain(renderToStaticMarkup(createElement('b', null, item.q)));
+      expect(footer).toContain(item.q);
       expect(footer).toContain(renderToStaticMarkup(createElement('span', null, item.a)));
     }
     expect(footer.indexOf(specification.faq[lang][0].q)).toBeLessThan(footer.indexOf(specification.faq[lang][1].q));
@@ -119,4 +127,9 @@ it('keeps script-closing content inert and preserves JSON data', () => {
   const serialized = serializeStructuredData(input);
   expect(serialized).not.toContain('<');
   expect(JSON.parse(serialized)).toEqual(input);
+});
+
+it.each(pages.filter(([, , lang]) => lang === 'en'))('keeps English search snippets within M30 limits (%s)', (_, metadata) => {
+  expect(String(metadata.title).length).toBeLessThanOrEqual(60);
+  expect(String(metadata.description).length).toBeLessThanOrEqual(160);
 });

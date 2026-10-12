@@ -53,5 +53,5 @@ pnpm build
 - 代码注释用英文。修改界面文案时维护 `L10n.swift` 中的中英文对应项。
 - 索引文件只保留一份，临时文件用完即删。没有完全磁盘访问权限时静默跳过 EPERM 目录。
 - 界面验证使用调试版 `--snapshot`；正式版不包含该入口。
-- 官网使用 TypeScript、React 和 Next.js，运行时依赖为 `next`、`react`、`react-dom`、`stripe`（授权接口用）；npm 与 pnpm 锁文件保持一致。
+- 官网使用 TypeScript、React 和 Next.js，运行时依赖为 `next`、`react`、`react-dom`、`@vercel/analytics`、`stripe`（授权接口用）；npm 与 pnpm 锁文件保持一致。
 - 不提交环境文件、密钥、下载包、索引或构建产物。CI 通过 `CI=true` 跳过时间敏感或依赖本机真实索引的测试，本地照常运行。

@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { activatedCopy, commonCopy, dict, pagePath, proCopy, recoverCopy, type Language, type SitePage } from '@/content/dict';
+import { syntaxCopy, everythingCopy } from '@/content/search-reference';
 import { changelogTitle } from '@/content/releases';
 
 export const siteURL = 'https://find.oiloil.org';
@@ -11,8 +12,9 @@ export function languageAlternates(page: SitePage, absolute = false) {
 
 export function siteMetadata(lang: Language, page: SitePage = 'home'): Metadata {
   const hidden = page === 'activated' || page === 'recover';
-  const title = page === 'home' ? dict[lang].title : page === 'pro' ? proCopy[lang].pageTitle : page === 'activated' ? activatedCopy[lang].title : page === 'recover' ? recoverCopy[lang].title : `${changelogTitle[lang]} · Oil Find`;
-  const description = page === 'home' ? dict[lang].description : page === 'pro' ? proCopy[lang].description : page === 'changelog' ? (lang === 'zh' ? 'Oil Find 每个版本的更新内容。' : 'What changed in each version of Oil Find.') : null;
+  const reference = page === 'syntax' ? syntaxCopy[lang] : page === 'everything-for-mac' ? everythingCopy[lang] : null;
+  const title = reference ? reference.title : page === 'home' ? dict[lang].title : page === 'pro' ? proCopy[lang].pageTitle : page === 'activated' ? activatedCopy[lang].title : page === 'recover' ? recoverCopy[lang].title : `${changelogTitle[lang]} · Oil Find`;
+  const description = reference ? reference.description : page === 'home' ? dict[lang].description : page === 'pro' ? proCopy[lang].description : page === 'changelog' ? (lang === 'zh' ? 'Oil Find 每个版本的更新内容。' : 'What changed in each version of Oil Find.') : null;
   const image = { url: `/assets/og/${page === 'pro' ? 'pro' : 'home'}.${lang}.png`, width: 1200, height: 630, alt: page === 'pro' ? proCopy[lang].pageTitle : dict[lang].title };
   return {
     metadataBase: new URL(siteURL),

@@ -12,3 +12,6 @@
   .syn button { grid-template-columns: 1fr; gap: 6px; padding: 16px; }
   .syn i { display: none; }
 }
+
+.allSyntax { margin-top: 16px; font-size: 13px; color: var(--blue-deep); }
+.allSyntax a:hover { text-decoration: underline; }

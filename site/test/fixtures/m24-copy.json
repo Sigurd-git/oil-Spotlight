@@ -5,16 +5,16 @@
       "description": "按 ⇧⌘F，屏幕正中弹出搜索框，每敲一个键不到 10 毫秒出结果。支持拼音首字母、通配符、正则、实时更新和外置硬盘，不依赖 Spotlight。免费开源，Pro 还能搜图片和文档里的文字。"
     },
     "/en": {
-      "title": "Oil Find: Everything for Mac, a free and open-source file search app",
-      "description": "Press ⇧⌘F and results appear with every keystroke, in under 10 ms. Wildcards, regex, pinyin, live updates and external drives, without Spotlight. Free and open source; Pro adds search inside images and documents."
+      "title": "Oil Find: Everything for Mac. Free, open-source file search",
+      "description": "Press ⇧⌘F and results appear as you type, in under 10 ms. Wildcards, regex, pinyin, live updates and external drives. Free and open source."
     },
     "/pro": {
       "title": "Oil Find Pro：搜图片和文档里的文字，拔掉的硬盘也能搜",
       "description": "截图、照片里的文字与画面，PDF、Word 等文档里的文字都能搜，全部在本机处理；外置硬盘拔掉后也能搜到。¥49 一次买断，可以免费试用 7 天。"
     },
     "/en/pro": {
-      "title": "Oil Find Pro: search inside images and documents, and drives you’ve unplugged",
-      "description": "Search the text in your screenshots, photos, PDFs and Office documents, all processed on your Mac, and keep external drives searchable after you unplug them. $9.99 once, with a 7-day free trial."
+      "title": "Oil Find Pro: search inside images and documents on Mac",
+      "description": "Search the text in screenshots, photos, PDFs and Office documents, all on your Mac, and keep unplugged drives searchable. $9.99 once, 7-day trial."
     },
     "/changelog": {
       "title": "更新日志 · Oil Find",
