@@ -31,10 +31,13 @@ final class SearchSourcesUITests: XCTestCase {
         func key(_ code: UInt16, characters: String = "", flags: NSEvent.ModifierFlags = []) -> NSEvent {
             NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: 0, context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code)!
         }
+        // The native preview panel is process-wide and can still be on screen from an earlier test,
+        // so check that each key press leaves it as it was.
+        let previewVisible = controller.quickLook.isVisible
         for event in [key(36), key(36, flags: .command), key(16, characters: "y", flags: .command)] {
             XCTAssertTrue(controller.handleKey(event))
             XCTAssertEqual(controller.footer.text, "「T7 Shield」未连接，连接后才能打开。")
-            XCTAssertFalse(controller.quickLook.isVisible)
+            XCTAssertEqual(controller.quickLook.isVisible, previewVisible)
         }
         XCTAssertTrue(controller.handleKey(key(8, characters: "c", flags: .command)))
         XCTAssertEqual(NSPasteboard.general.string(forType: .string), item.path)
