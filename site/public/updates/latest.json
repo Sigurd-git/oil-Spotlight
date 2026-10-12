@@ -1,17 +1,21 @@
 {
-  "version": "1.5.0",
-  "build": 11,
-  "url": "https://find.oiloil.org/downloads/Oil-Find-1.5.0.zip",
-  "size": 1971438,
-  "sha256": "dd8db993cbc9617fcf1e4f21eabc2d5202522a6b263cc80fd62ce08a3f0b997f",
+  "version": "1.6.0",
+  "build": 12,
+  "url": "https://find.oiloil.org/downloads/Oil-Find-1.6.0.zip",
+  "size": 2400296,
+  "sha256": "aad3b80a17afc590cc531bf500abd6fe80406ab074421a27f2b9f13226438fae",
   "minimumSystemVersion": "14.0",
-  "published": "2026-10-11",
+  "published": "2026-10-12",
   "notes": {
     "zh": [
-      "Oil Find Pro 新增文档内容搜索：PDF、Word、PowerPoint、Excel、Pages、Markdown 和纯文本里的文字都能搜到，扫描版 PDF 会识别前 10 页。全部在本机处理。"
+      "外置磁盘搜索现在免费：插上就建立索引并实时更新，在设置的「外置磁盘」里可以逐个关闭。",
+      "Pro 保留「拔掉后也能搜到」，并继续提供图片和文档内容搜索。",
+      "Pro 激活后，应用图标会换成戴飞行员墨镜的版本。"
     ],
     "en": [
-      "Oil Find Pro now searches inside documents: PDF, Word, PowerPoint, Excel, Pages, Markdown and plain text, plus the first 10 pages of scanned PDFs. Everything is processed on your Mac."
+      "Searching external drives is now free: drives are indexed when you plug them in and kept up to date, and you can turn off any drive in Settings.",
+      "Pro keeps drives searchable after you unplug them, along with image and document content search.",
+      "When Pro is active, the app icon switches to a version wearing aviators."
     ]
   }
 }

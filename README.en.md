@@ -19,7 +19,7 @@
 
 Oil Find is a file search tool for macOS that works like Everything on Windows: it keeps its own in-memory index of every file name on your disk instead of relying on Spotlight. Press ⇧⌘F, a search field appears in the middle of the screen, and results update with every keystroke. When files are created, renamed or deleted, the index follows along in real time.
 
-Everything about searching by file name is in the free, open-source version. Searching external drives and the contents of images and documents is part of the paid [Pro](#oil-find-pro) add-on.
+Everything about searching by file name, external drives included, is in the free, open-source version. Searching the contents of images and documents, and drives you've unplugged, is part of the paid [Pro](#oil-find-pro) add-on.
 
 ## Why it's fast
 
@@ -80,7 +80,8 @@ The free version is open source and free forever. Pro is a closed-source paid ad
 | Search by file name: pinyin, wildcards, regex, filters by kind, size and date | ✓ | ✓ |
 | Live updates, Quick Look, drag and drop, full keyboard control | ✓ | ✓ |
 | Excluded folders and file types, in-app updates | ✓ | ✓ |
-| External drives: indexed when plugged in, searchable when unplugged | | ✓ |
+| External drives: indexed when plugged in, kept up to date | ✓ | ✓ |
+| External drives stay searchable when unplugged | | ✓ |
 | Image content: text and objects in screenshots and photos | | ✓ |
 | Document content: PDF, Word, PowerPoint, Excel, Pages, Markdown and more | | ✓ |
 | Source code | Open source, MIT | Closed source |
@@ -132,7 +133,8 @@ Building from source gives you the free version, without Pro. Your own builds ar
 ## Current limits
 
 - Apple silicon and macOS 14 or later only.
-- Network volumes aren't supported; external drives need Pro.
+- Network volumes aren't supported.
+- After you unplug an external drive, the free version can't search its files; Pro can.
 - The free version searches file names only; Pro also searches the text inside images and documents.
 
 ## Project layout
@@ -150,7 +152,7 @@ See [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) for the index design and [AGE
 
 ## Contributing
 
-Issues and pull requests are welcome. The project does one thing, file search, so improvements to matching, ranking, indexing, performance and the interface are all in scope. Pro features (external drives, image and document content) are maintained in a private repository, and pull requests that implement them won't be merged.
+Issues and pull requests are welcome. The project does one thing, file search, so improvements to matching, ranking, indexing, performance and the interface are all in scope. Pro features (image and document content, searching unplugged drives) are maintained in a private repository, and pull requests that implement them won't be merged.
 
 ## License
 

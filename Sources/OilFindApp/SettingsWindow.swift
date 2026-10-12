@@ -34,6 +34,8 @@ final class SettingsModel: ObservableObject {
     @Published var granted = false
     @Published var rebuilding = false
     weak var manager: IndexManager?
+    var externalDrives: ExternalDriveCatalogReading?
+    private var disconnectedDriveName: String?
     var additionalSources: (() -> [SearchSource])?
     private var inspectionGeneration = 0
     var onConfigChange: (() -> Void)?
@@ -69,7 +71,8 @@ final class SettingsModel: ObservableObject {
             guard let self else { return }
             self.language = L10n.language
             self.shortcutError = L10n.relocalized(self.shortcutError)
-            if let answer = self.coverageExplanation { self.explanation = L10n.explanation(answer) }
+            if let name = self.disconnectedDriveName { self.explanation = L10n.text("explain.disconnectedDrive", name) }
+            else if let answer = self.coverageExplanation { self.explanation = L10n.explanation(answer) }
             self.onContentChange?()
         }
         refresh()
@@ -115,14 +118,21 @@ final class SettingsModel: ObservableObject {
     }
     func check(path: String) {
         // Capture extension state on the main thread before inspecting the filesystem.
-        let sources = (additionalSources?() ?? []).filter(\.isOnline), manager = manager
+        let allSources = additionalSources?() ?? []
+        let sources = allSources, manager = manager
+        let disconnected = externalDrives?.knownDrives.first { drive in
+            !drive.isConnected && !allSources.contains { $0.id == drive.id }
+                && (path == drive.path || path.hasPrefix(drive.path + "/"))
+        }
         inspectionGeneration += 1
         let generation = inspectionGeneration
         DispatchQueue.global(qos: .utility).async {
             let answer = sources.lazy.compactMap { $0.explain(path: path) }.first ?? manager?.explain(path: path) ?? .pending
             DispatchQueue.main.async {
                 guard generation == self.inspectionGeneration else { return }
-                self.coverageExplanation = answer; self.explanation = L10n.explanation(answer)
+                self.disconnectedDriveName = disconnected?.name
+                self.coverageExplanation = answer
+                self.explanation = disconnected.map { L10n.text("explain.disconnectedDrive", $0.name) } ?? L10n.explanation(answer)
             }
         }
     }
@@ -265,6 +275,7 @@ private struct LanguagePicker: NSViewRepresentable {
 private struct SettingsForm: View {
     @ObservedObject var model: SettingsModel
     var appExtension: ApplicationExtension?
+    var externalDrives: ExternalDriveCatalog
     var window: () -> NSWindow?
     var body: some View {
         Form {
@@ -346,6 +357,9 @@ private struct SettingsForm: View {
                 scopeRow("system", key: "indexSystemDirs", enabled: model.indexSystemDirs)
             } header: { Text(L10n.text("settings.scope")) }
               footer: { hint(L10n.text("settings.scopeHint")) }
+            Section(L10n.text("drivesTitle")) {
+                ExternalDriveSettings(catalog: externalDrives, chinese: L10n.chinese, window: window)
+            }
             if let appExtension { appExtension.settingsSection(window: window) }
             Section {
                 if model.excludedPaths.isEmpty { Text(L10n.text("settings.noExcluded")).foregroundStyle(.secondary) }
@@ -467,15 +481,18 @@ final class SettingsWindow: NSWindow {
 
 final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     let model: SettingsModel
-    init(model: SettingsModel, appExtension: ApplicationExtension? = nil) {
+    init(model: SettingsModel, appExtension: ApplicationExtension? = nil, externalDrives: ExternalDriveCatalog = ExternalDriveCatalog()) {
         self.model = model
-        model.additionalSources = { [weak appExtension] in appExtension?.searchSources() ?? [] }
+        model.externalDrives = externalDrives
+        model.additionalSources = { [weak appExtension, weak externalDrives] in
+            (externalDrives?.searchSources() ?? []) + (appExtension?.searchSources() ?? [])
+        }
         let window = SettingsWindow(contentRect: NSRect(x: 0, y: 0, width: 540, height: model.contentHeight), styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.settingsModel = model
         window.title = L10n.text("settings.title"); window.isReleasedWhenClosed = false
         super.init(window: window)
         window.delegate = self
-        window.contentViewController = NSHostingController(rootView: SettingsForm(model: model, appExtension: appExtension, window: { [weak window] in window }))
+        window.contentViewController = NSHostingController(rootView: SettingsForm(model: model, appExtension: appExtension, externalDrives: externalDrives, window: { [weak window] in window }))
         model.onContentChange = { [weak self] in self?.resizeToContent() }
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }

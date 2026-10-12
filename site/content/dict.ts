@@ -71,7 +71,7 @@ export const GITHUB_URL = 'https://github.com/oil-oil/oil-find';
 export const dict: Record<Language, LandingCopy> = {
   zh: {
     title: "Oil Find：苹果版的 Everything，免费开源的 Mac 文件搜索工具",
-    description: "按 ⇧⌘F，屏幕正中弹出搜索框，每敲一个键不到 10 毫秒出结果。支持拼音首字母、通配符、正则和实时更新，不依赖 Spotlight。免费开源，Pro 还能搜外置硬盘，以及图片和文档里的文字。",
+    description: "按 ⇧⌘F，屏幕正中弹出搜索框，每敲一个键不到 10 毫秒出结果。支持拼音首字母、通配符、正则、实时更新和外置硬盘，不依赖 Spotlight。免费开源，Pro 还能搜图片和文档里的文字。",
     'nav.speed': '速度', 'nav.syntax': '语法', 'nav.github': 'GitHub', 'nav.download': '下载', 'nav.lang': 'EN',
     lead: ['不到 10 毫秒，', '找到 Mac 上的任何文件'],
     placeholder: '在这里试试：wd、png、readme',
@@ -124,7 +124,7 @@ export const dict: Record<Language, LandingCopy> = {
   },
   en: {
     title: "Oil Find: Everything for Mac, a free and open-source file search app",
-    description: "Press ⇧⌘F and results appear with every keystroke, in under 10 ms. Wildcards, regex, pinyin and live updates, without Spotlight. Free and open source; Pro adds external drives and search inside images and documents.",
+    description: "Press ⇧⌘F and results appear with every keystroke, in under 10 ms. Wildcards, regex, pinyin, live updates and external drives, without Spotlight. Free and open source; Pro adds search inside images and documents.",
     'nav.speed': 'Speed', 'nav.syntax': 'Syntax', 'nav.github': 'GitHub', 'nav.download': 'Download', 'nav.lang': '中文',
     lead: ['Any file on your Mac, ', 'in under 10 ms'],
     placeholder: 'Try it here: wd, png, readme',
@@ -219,9 +219,9 @@ export const commonCopy = {
 export const proCopy = {
   zh: {
     title: 'Oil Find Pro',
-    pageTitle: "Oil Find Pro：搜外置硬盘，以及图片和文档里的文字",
-    description: "外置硬盘插上就建立索引，拔掉后也能搜到；截图、照片里的文字与画面，PDF、Word 等文档里的文字也能搜，全部在本机处理。¥49 一次买断，可以免费试用 7 天。",
-    subtitle: '免费版一直免费，也一直开源。硬盘多、截图和文档多，再升级 Pro。',
+    pageTitle: "Oil Find Pro：搜图片和文档里的文字，拔掉的硬盘也能搜",
+    description: "截图、照片里的文字与画面，PDF、Word 等文档里的文字都能搜，全部在本机处理；外置硬盘拔掉后也能搜到。¥49 一次买断，可以免费试用 7 天。",
+    subtitle: "免费版一直免费，也一直开源。截图和文档多、硬盘常插拔，再升级 Pro。",
     query: '发票',
     rows: [
       { name: '截屏2026-09-28 14.02.11.png', detail: '图中文字：…开具**发票**的日期… · ~/Desktop', date: '9月28日' },
@@ -231,9 +231,9 @@ export const proCopy = {
     ],
     demoDescription: '示例：搜索「发票」时，同时找到截图里的文字、拔掉的移动硬盘上的文件、拍到收据的照片和合同正文里的内容。',
     features: [
-      { title: '外置磁盘', description: '插上就建立索引，拔掉后也能搜到，结果会标出文件在哪块盘上。' },
       { title: '图片内容', description: '搜截图、照片和拍下的单据里的文字与画面。' },
       { title: '文档内容', description: '搜 PDF、Word、PowerPoint、Excel、Pages、Markdown 和纯文本里的文字，扫描版 PDF 也能识别。' },
+      { title: "拔掉的硬盘也能搜", description: "外置磁盘拔掉后，上面的文件仍然能搜到，结果会标出在哪块盘上。" },
     ],
     privacy: '图片和文档都在这台 Mac 上处理，不会上传。',
     priceUnit: '一次买断', buy: '购买 Pro', download: '下载试用',
@@ -246,7 +246,8 @@ export const proCopy = {
         ['按文件名搜索：拼音、通配符、正则，按类型、大小、时间筛选', '✓', '✓'],
         ['实时更新、Quick Look 预览、拖放、全键盘操作', '✓', '✓'],
         ['排除文件夹和文件类型、应用内更新', '✓', '✓'],
-        ['外置磁盘：插上就建立索引，拔掉后也能搜到', '', '✓'],
+        ['外置磁盘：插上就建立索引，实时更新', '✓', '✓'],
+        ['外置磁盘拔掉后也能搜到', '', '✓'],
         ['图片内容：截图、照片里的文字与画面', '', '✓'],
         ['文档内容：PDF、Word、PowerPoint、Excel、Pages、Markdown 等', '', '✓'],
         ['源码', '开源，MIT', '闭源'],
@@ -266,9 +267,9 @@ export const proCopy = {
   },
   en: {
     title: 'Oil Find Pro',
-    pageTitle: "Oil Find Pro: search external drives and the text inside images and documents",
-    description: "Drives stay searchable after you unplug them, and you can search the text in your screenshots, photos, PDFs and Office documents, all processed on your Mac. $9.99 once, with a 7-day free trial.",
-    subtitle: 'The free version stays free and open source. If you have lots of drives, screenshots or documents, upgrade to Pro.',
+    pageTitle: "Oil Find Pro: search inside images and documents, and drives you’ve unplugged",
+    description: "Search the text in your screenshots, photos, PDFs and Office documents, all processed on your Mac, and keep external drives searchable after you unplug them. $9.99 once, with a 7-day free trial.",
+    subtitle: "The free version stays free and open source. If you have lots of screenshots and documents, or drives you plug in and out, upgrade to Pro.",
     query: 'invoice',
     rows: [
       { name: 'Screenshot 2026-09-28 at 14.02.11.png', detail: 'Text in image: …**invoice** date… · ~/Desktop', date: 'Sep 28' },
@@ -278,9 +279,9 @@ export const proCopy = {
     ],
     demoDescription: 'Example: searching for “invoice” finds text inside a screenshot, a file on an unplugged drive, a photo of a receipt and a passage inside a contract.',
     features: [
-      { title: 'External drives', description: 'Indexed when you plug them in and still searchable after you unplug them. Results show which drive a file is on.' },
       { title: 'Image content', description: 'Search the text and objects in screenshots, photos and snapped receipts.' },
       { title: 'Document content', description: 'Search the text inside PDF, Word, PowerPoint, Excel, Pages, Markdown and plain-text files, including scanned PDFs.' },
+      { title: "Unplugged drives", description: "Files on an external drive stay searchable after you unplug it, and results show which drive they’re on." },
     ],
     privacy: 'Images and documents are processed on your Mac and never uploaded.',
     priceUnit: 'one-time', buy: 'Buy Pro', download: 'Download to Try',
@@ -293,7 +294,8 @@ export const proCopy = {
         ['Search by file name: pinyin, wildcards, regex, filters by kind, size and date', '✓', '✓'],
         ['Live updates, Quick Look, drag and drop, full keyboard control', '✓', '✓'],
         ['Excluded folders and file types, in-app updates', '✓', '✓'],
-        ['External drives: indexed when plugged in, searchable when unplugged', '', '✓'],
+        ["External drives: indexed when plugged in, kept up to date", '✓', '✓'],
+        ["External drives stay searchable when unplugged", '', '✓'],
         ['Image content: text and objects in screenshots and photos', '', '✓'],
         ['Document content: PDF, Word, PowerPoint, Excel, Pages, Markdown and more', '', '✓'],
         ['Source code', 'Open source, MIT', 'Closed source'],

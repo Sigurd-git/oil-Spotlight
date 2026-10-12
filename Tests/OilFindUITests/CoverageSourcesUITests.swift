@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import Combine
 import XCTest
 @testable import OilFindCore
 @testable import OilFindApp
@@ -50,6 +51,31 @@ final class CoverageSourcesUITests: XCTestCase {
         appExtension.sources = []
         check(root + "/readme.md", .volume)
         appExtension.sources = [source(online: false)]
-        check(root + "/readme.md", .volume)
+        check(root + "/readme.md", .indexed)
     }
+    func testKnownDisconnectedDriveExplainsAbsenceOnlyWhenThereIsNoOfflineSource() {
+        final class Catalog: ExternalDriveCatalogReading {
+            var knownDrives: [ExternalDriveInfo] = []
+            var changes: AnyPublisher<Void, Never> { Empty().eraseToAnyPublisher() }
+        }
+        let catalog = Catalog(), model = SettingsModel(snapshot: true), root = "/Volumes/Archive"
+        catalog.knownDrives = [.init(id: "archive", name: "Archive", path: root, enabled: true,
+                                    isConnected: false, catalogURL: URL(fileURLWithPath: "/tmp/archive.oilfind"))]
+        model.externalDrives = catalog
+        func check(_ expected: String) {
+            model.explanation = nil; model.check(path: root + "/missing.txt")
+            let deadline = Date().addingTimeInterval(3)
+            while model.explanation == nil && Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.01)) }
+            XCTAssertEqual(model.explanation, expected)
+        }
+        L10n.snapshotChinese = true
+        check("它在「Archive」上，这块磁盘现在没有连接。")
+        L10n.snapshotChinese = false
+        check("It’s on “Archive”, which isn’t connected right now.")
+        let store = IndexStore(scan: ScanOutput(buffers: [], count: 1, homeIndex: .max, elapsed: 0, finishedAt: 0), config: .init(rootPath: root))
+        model.additionalSources = { [SearchSource(id: "archive", displayName: "Archive", isOnline: false, store: store, explainPath: { _ in .pending })] }
+        check(L10n.explanation(.pending))
+        L10n.snapshotChinese = nil
+    }
+
 }

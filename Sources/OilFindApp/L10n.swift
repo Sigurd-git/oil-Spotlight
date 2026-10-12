@@ -39,6 +39,20 @@ enum L10n {
         }
     }
     private static let strings: [String: (String, String)] = [
+        "action.cancel": ("取消", "Cancel"),
+        "drivesTitle": ("外置磁盘", "External Drives"),
+        "drivesEnabled": ("索引外置磁盘", "Index external drives"),
+        "drivesDescription": ("插上就建立索引并实时更新，可以逐个关闭。", "Drives are indexed when you plug them in and kept up to date. You can turn off any drive."),
+        "driveConnected": ("已连接 · %@ 个文件", "Connected · %@ files"),
+        "driveIndexing": ("正在建立索引 · %@ 个文件", "Indexing · %@ files"),
+        "driveOffline": ("未连接 · 上次连接 %@", "Not connected · Last connected %@"),
+        "driveDisabled": ("不索引", "Not indexed"),
+        "drivesEmpty": ("还没有连接过外置磁盘。", "No external drives connected yet."),
+        "driveRemoveAction": ("移除…", "Remove…"),
+        "driveRemoveTitle": ("移除「%@」？", "Remove “%@”?"),
+        "driveRemoveBody": ("这块磁盘的目录会被删除，下次连接时重新建立索引。", "Its catalog will be deleted. It will be indexed again the next time you connect it."),
+        "driveRemove": ("移除", "Remove"),
+        "explain.disconnectedDrive": ("它在「%@」上，这块磁盘现在没有连接。", "It’s on “%@”, which isn’t connected right now."),
         "source.offline": ("未连接", "Not connected"),
         "source.unavailable": ("「%@」未连接，连接后才能打开。", "“%@” is not connected. Connect it to open this file."),
         "update.check": ("检查更新…", "Check for Updates…"),

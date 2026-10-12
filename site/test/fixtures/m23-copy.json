@@ -1,16 +1,16 @@
 {
   "zh": {
     "标题": "Oil Find Pro",
-    "副标题": "免费版一直免费，也一直开源。硬盘多、截图和文档多，再升级 Pro。",
+    "副标题": "免费版一直免费，也一直开源。截图和文档多、硬盘常插拔，再升级 Pro。",
     "演示查询": "发票",
     "演示第 1 行": "截屏2026-09-28 14.02.11.png ／ 图中文字：…开具**发票**的日期… · ~/Desktop ／ 9月28日",
     "演示第 2 行（离线）": "**发票**-9月.pdf ／ /Volumes/T7 Shield/报销 · 未连接 ／ 9月30日",
     "演示第 3 行": "IMG_2043.HEIC ／ 图中有：收据 · ~/Pictures ／ 9月21日",
     "屏幕阅读器说明": "示例：搜索「发票」时，同时找到截图里的文字、拔掉的移动硬盘上的文件、拍到收据的照片和合同正文里的内容。",
-    "功能 1 标题": "外置磁盘",
-    "功能 1 说明": "插上就建立索引，拔掉后也能搜到，结果会标出文件在哪块盘上。",
-    "功能 2 标题": "图片内容",
-    "功能 2 说明": "搜截图、照片和拍下的单据里的文字与画面。",
+    "功能 1 标题": "图片内容",
+    "功能 1 说明": "搜截图、照片和拍下的单据里的文字与画面。",
+    "功能 2 标题": "文档内容",
+    "功能 2 说明": "搜 PDF、Word、PowerPoint、Excel、Pages、Markdown 和纯文本里的文字，扫描版 PDF 也能识别。",
     "价格单位": "一次买断",
     "主按钮": "购买 Pro",
     "次按钮": "下载试用",
@@ -48,22 +48,22 @@
       ]
     ],
     "演示第 4 行": "采购合同.pdf ／ 文档内容（第 3 页）：…含税**发票**于验收后开具… · ~/Documents ／ 9月18日",
-    "功能 3 标题": "文档内容",
-    "功能 3 说明": "搜 PDF、Word、PowerPoint、Excel、Pages、Markdown 和纯文本里的文字，扫描版 PDF 也能识别。",
+    "功能 3 标题": "拔掉的硬盘也能搜",
+    "功能 3 说明": "外置磁盘拔掉后，上面的文件仍然能搜到，结果会标出在哪块盘上。",
     "本机处理说明": "图片和文档都在这台 Mac 上处理，不会上传。"
   },
   "en": {
     "标题": "Oil Find Pro",
-    "副标题": "The free version stays free and open source. If you have lots of drives, screenshots or documents, upgrade to Pro.",
+    "副标题": "The free version stays free and open source. If you have lots of screenshots and documents, or drives you plug in and out, upgrade to Pro.",
     "演示查询": "invoice",
     "演示第 1 行": "Screenshot 2026-09-28 at 14.02.11.png ／ Text in image: …**invoice** date… · ~/Desktop ／ Sep 28",
     "演示第 2 行（离线）": "**invoice**-september.pdf ／ /Volumes/T7 Shield/Expenses · Not connected ／ Sep 30",
     "演示第 3 行": "IMG_2043.HEIC ／ Contains: receipt · ~/Pictures ／ Sep 21",
     "屏幕阅读器说明": "Example: searching for “invoice” finds text inside a screenshot, a file on an unplugged drive, a photo of a receipt and a passage inside a contract.",
-    "功能 1 标题": "External drives",
-    "功能 1 说明": "Indexed when you plug them in and still searchable after you unplug them. Results show which drive a file is on.",
-    "功能 2 标题": "Image content",
-    "功能 2 说明": "Search the text and objects in screenshots, photos and snapped receipts.",
+    "功能 1 标题": "Image content",
+    "功能 1 说明": "Search the text and objects in screenshots, photos and snapped receipts.",
+    "功能 2 标题": "Document content",
+    "功能 2 说明": "Search the text inside PDF, Word, PowerPoint, Excel, Pages, Markdown and plain-text files, including scanned PDFs.",
     "价格单位": "one-time",
     "主按钮": "Buy Pro",
     "次按钮": "Download to Try",
@@ -101,8 +101,8 @@
       ]
     ],
     "演示第 4 行": "purchase-agreement.pdf ／ In document (page 3): …the **invoice** is issued after acceptance… · ~/Documents ／ Sep 18",
-    "功能 3 标题": "Document content",
-    "功能 3 说明": "Search the text inside PDF, Word, PowerPoint, Excel, Pages, Markdown and plain-text files, including scanned PDFs.",
+    "功能 3 标题": "Unplugged drives",
+    "功能 3 说明": "Files on an external drive stay searchable after you unplug it, and results show which drive they’re on.",
     "本机处理说明": "Images and documents are processed on your Mac and never uploaded."
   }
 }

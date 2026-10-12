@@ -8,7 +8,7 @@ enum SnapshotError: Error, CustomStringConvertible {
 
 #if DEBUG
 enum Snapshot {
-    static func run(_ arguments: [String], appExtension: ApplicationExtension? = nil) throws {
+    static func run(_ arguments: [String], appExtension: ApplicationExtension? = nil, externalDrives: ExternalDriveCatalog = ExternalDriveCatalog()) throws {
         let allowed = Set(["--snapshot", "--state", "--query", "--filter", "--sort", "--select", "--appearance", "--db", "--settings-scroll", "--language", "--coverage", "--update-notes", "--update-scroll"])
         var values: [String: String] = [:], i = 0, granted = false
         while i < arguments.count {
@@ -51,7 +51,7 @@ enum Snapshot {
         app.setActivationPolicy(.prohibited)
         if state == "menu" {
             app.appearance = NSAppearance(named: appearance == "dark" ? .darkAqua : .aqua)
-            let delegate = AppDelegate(appExtension: appExtension)
+            let delegate = AppDelegate(appExtension: appExtension, externalDrives: externalDrives)
             let menu = delegate.makeMenu()
             guard let screen = NSScreen.main else { throw SnapshotError.failed("Cannot find screen") }
             let capture = MenuSnapshotCapture(menu: menu, output: output)
@@ -113,7 +113,7 @@ enum Snapshot {
         if state == "settings" {
             let model = SettingsModel(snapshotStore: store, snapshot: true)
             if values["--coverage"] == "sample" { model.expandedCoverage = ["noAccess", "scope"] }
-            let controller = SettingsWindowController(model: model, appExtension: appExtension)
+            let controller = SettingsWindowController(model: model, appExtension: appExtension, externalDrives: externalDrives)
             guard let window = controller.window, let view = window.contentView else { throw SnapshotError.failed("Cannot create settings view") }
             window.appearance = NSAppearance(named: appearance == "dark" ? .darkAqua : .aqua)
             view.layoutSubtreeIfNeeded()
@@ -140,7 +140,7 @@ enum Snapshot {
         panel.appearance = NSAppearance(named: appearance == "dark" ? .darkAqua : .aqua)
         let controller = panel.searchController
         controller.supplementaryProvider = appExtension?.supplementarySearchProvider
-        try controller.prepareSnapshot(state: state, query: values["--query"] ?? "readme", options: SearchOptions(sort: key, ascending: key == .name, kind: kind == 0 ? nil : UInt8(kind)), store: store, selection: selection, additionalSources: appExtension?.searchSources() ?? [])
+        try controller.prepareSnapshot(state: state, query: values["--query"] ?? "readme", options: SearchOptions(sort: key, ascending: key == .name, kind: kind == 0 ? nil : UInt8(kind)), store: store, selection: selection, additionalSources: externalDrives.searchSources() + (appExtension?.searchSources() ?? []))
         let view = controller.view
         view.frame = NSRect(origin: .zero, size: Theme.panelSize)
         view.layoutSubtreeIfNeeded(); view.displayIfNeeded()

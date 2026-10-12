@@ -25,7 +25,12 @@
           "✓"
         ],
         [
-          "外置磁盘：插上就建立索引，拔掉后也能搜到",
+          "外置磁盘：插上就建立索引，实时更新",
+          "✓",
+          "✓"
+        ],
+        [
+          "外置磁盘拔掉后也能搜到",
           "",
           "✓"
         ],
@@ -79,7 +84,12 @@
           "✓"
         ],
         [
-          "External drives: indexed when plugged in, searchable when unplugged",
+          "External drives: indexed when plugged in, kept up to date",
+          "✓",
+          "✓"
+        ],
+        [
+          "External drives stay searchable when unplugged",
           "",
           "✓"
         ],

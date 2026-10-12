@@ -109,7 +109,7 @@ describe.each(['zh', 'en'] as const)('rendered structured data (%s)', lang => {
 
 it.each(['zh', 'en'] as const)('uses the specified Pro share tagline and keeps three demo files (%s)', lang => {
   const svg = readFileSync(new URL(`../public/assets/og/pro.${lang}.svg`, import.meta.url), 'utf8');
-  expect(svg).toContain(`>${specification.proShare[lang]}</text>`);
+  for (const line of specification.proShare[lang]) expect(svg).toContain(`>${line}</text>`);
   const demo = svg.slice(svg.indexOf('id="search-proof"'));
   expect(demo.match(/>[^<]+\.(?:png|pdf|HEIC)<\/text>/g)).toHaveLength(3);
 });

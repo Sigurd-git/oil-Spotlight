@@ -9,6 +9,13 @@ export const changelogTitle = { zh: '更新日志', en: 'Changelog' };
 // The single source for the website and the packaged update manifest.
 export const releases: Release[] = [
   {
+    version: '1.6.0', date: '2026-10-12',
+    notes: {
+      zh: ['外置磁盘搜索现在免费：插上就建立索引并实时更新，在设置的「外置磁盘」里可以逐个关闭。', 'Pro 保留「拔掉后也能搜到」，并继续提供图片和文档内容搜索。', 'Pro 激活后，应用图标会换成戴飞行员墨镜的版本。'],
+      en: ['Searching external drives is now free: drives are indexed when you plug them in and kept up to date, and you can turn off any drive in Settings.', 'Pro keeps drives searchable after you unplug them, along with image and document content search.', 'When Pro is active, the app icon switches to a version wearing aviators.'],
+    },
+  },
+  {
     // Packaging confirms the release date before publishing.
     version: '1.5.0', date: '2026-10-11',
     notes: {

@@ -13,7 +13,7 @@ import { loadPriceDisplay } from '@/lib/price';
 import specification from './fixtures/m23-copy.json';
 import clarity from './fixtures/m28-copy.json';
 
-// Exact copy follows the M23 tables with the M27s document-search updates.
+// Exact copy follows M23 with the M27s and M29 updates.
 const plain = (s: string) => s.replace(/\*\*/g, '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
 function text(html: string) {
   return html.replace(/<[^>]+>/g, '').replace(/&#x27;|&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, '&');
@@ -90,7 +90,7 @@ describe.each(['zh', 'en'] as const)('Free vs Pro clarity (%s)', lang => {
     expect(text(section.match(/<caption[^>]*>([\s\S]*?)<\/caption>/)![1])).toBe(expected.compare.title);
     expect(section.match(/scope="col"/g)).toHaveLength(3);
     const rows = [...section.matchAll(/<tr>([\s\S]*?)<\/tr>/g)].slice(1);
-    expect(rows).toHaveLength(8);
+    expect(rows).toHaveLength(9);
     rows.forEach((row, index) => {
       expect(row[1]).toContain('scope="row"');
       const cells = [...row[1].matchAll(/<(?:th|td)[^>]*>([\s\S]*?)<\/(?:th|td)>/g)].map(cell => text(cell[1]));

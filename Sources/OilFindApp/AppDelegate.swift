@@ -9,8 +9,10 @@ enum AppLog {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+    private let externalDrives: ExternalDriveCatalog
     private let appExtension: ApplicationExtension?
-    init(appExtension: ApplicationExtension? = nil) {
+    init(appExtension: ApplicationExtension? = nil, externalDrives: ExternalDriveCatalog = ExternalDriveCatalog()) {
+        self.externalDrives = externalDrives
         self.appExtension = appExtension
         super.init()
     }
@@ -53,11 +55,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         hotKey = HotKey(keyCode: key, modifiers: modifiers) { [weak self] in self?.handleHotKey() }
         buildMenu(keyCode: key, modifiers: modifiers)
         panel.searchController.supplementaryProvider = appExtension?.supplementarySearchProvider
-        panel.searchController.additionalSources = { [weak self] in self?.appExtension?.searchSources() ?? [] }
-        appExtension?.onSearchSourcesChange = { [weak self] in
+        panel.searchController.additionalSources = { [weak self] in (self?.externalDrives.searchSources() ?? []) + (self?.appExtension?.searchSources() ?? []) }
+        let sourcesChanged: () -> Void = { [weak self] in
             self?.panel.searchController.sourcesChanged()
             self?.settingsController?.model.refresh()
         }
+        externalDrives.onSourcesChange = sourcesChanged
+        appExtension?.onSearchSourcesChange = sourcesChanged
+        appExtension?.attachExternalDrives(externalDrives)
+        externalDrives.start()
         appExtension?.start(chinese: L10n.chinese, showSettings: { [weak self] in self?.presentSettings() })
         panel.searchController.onSettings = { [weak self] in self?.showSettings() }
         let fullDiskAccess = Permissions.hasFullDiskAccess()
@@ -194,7 +200,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 self.manager?.updateConfig(SettingsPreferences.indexConfig(limited: self.limited))
             }
             model.onPinyinChange = { [weak self] in self?.panel.searchController.startSearch(preserveSelection: true) }
-            settingsController = SettingsWindowController(model: model, appExtension: appExtension)
+            settingsController = SettingsWindowController(model: model, appExtension: appExtension, externalDrives: externalDrives)
         }
         settingsController?.present()
     }
@@ -262,6 +268,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls { appExtension?.handle(url) }
     }
-    func applicationWillTerminate(_ notification: Notification) { if !secondaryInstance { appExtension?.stop(); UpdateManager.shared.stop() }; settingsController?.model.stopRefreshing(); permissionTimer?.invalidate(); hotKey?.unregister(); manager?.stop() }
+    func applicationWillTerminate(_ notification: Notification) { if !secondaryInstance { appExtension?.stop(); externalDrives.stop(); UpdateManager.shared.stop() }; settingsController?.model.stopRefreshing(); permissionTimer?.invalidate(); hotKey?.unregister(); manager?.stop() }
     deinit { if let languageObserver { NotificationCenter.default.removeObserver(languageObserver) } }
 }

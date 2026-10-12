@@ -7,6 +7,9 @@ import { describe, expect, it } from 'vitest';
 import { changelogTitle, releases } from '../content/releases';
 
 describe('updates and release notes', () => {
+  it('includes the exact bilingual 1.6.0 external-drive announcement', () => {
+    expect(releases.find(release => release.version === '1.6.0')?.notes).toEqual({"zh": ["外置磁盘搜索现在免费：插上就建立索引并实时更新，在设置的「外置磁盘」里可以逐个关闭。", "Pro 保留「拔掉后也能搜到」，并继续提供图片和文档内容搜索。", "Pro 激活后，应用图标会换成戴飞行员墨镜的版本。"], "en": ["Searching external drives is now free: drives are indexed when you plug them in and kept up to date, and you can turn off any drive in Settings.", "Pro keeps drives searchable after you unplug them, along with image and document content search.", "When Pro is active, the app icon switches to a version wearing aviators."]});
+  });
   it('includes the exact bilingual 1.5.0 document-search announcement', () => {
     expect(releases.find(release => release.version === '1.5.0')?.notes).toEqual({
       zh: ['Oil Find Pro 新增文档内容搜索：PDF、Word、PowerPoint、Excel、Pages、Markdown 和纯文本里的文字都能搜到，扫描版 PDF 会识别前 10 页。全部在本机处理。'],

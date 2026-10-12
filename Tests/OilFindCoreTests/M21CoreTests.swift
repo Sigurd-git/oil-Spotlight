@@ -162,6 +162,45 @@ final class M21CoreTests: XCTestCase {
         print("M21 accepted live cursor=\(saved.lastEventId) persistedDeviceCursor=\(FSWatcher.currentEventId(forDevice: status.st_dev))")
     }
 
+    func testSavedVolumeCatalogReconnectSupplementsHistoryWithoutScanning() throws {
+        try skipIfCI("Requires the host APFS journal and event delivery.")
+        let root = "/"
+        let uuid = try XCTUnwrap(try URL(fileURLWithPath: root).resourceValues(forKeys: [.volumeUUIDStringKey]).volumeUUIDString)
+        var status = stat(); XCTAssertEqual(stat("/System/Volumes/Data", &status), 0)
+        let journal = try XCTUnwrap(FSWatcher.uuid(forDevice: status.st_dev))
+        let base = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Desktop/OilFindM29Replay-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+        let before = base.appendingPathComponent("before.txt"), after = base.appendingPathComponent("after.txt")
+        try Data([65]).write(to: before)
+        let config = IndexConfig(rootPath: root)
+        var buffer = ScanBuffer(), parent: UInt32 = 0
+        let components = base.path.split(separator: "/").map(String.init) + ["before.txt"]
+        for (offset, name) in components.enumerated() {
+            let id = UInt32(offset + 1), directory = offset < components.count - 1
+            Array(name.utf8).withUnsafeBufferPointer {
+                buffer.append(id: id, parent: parent, size: directory ? 0 : 1, mtime: 0,
+                              flags: SiftFlag.userArea | (directory ? SiftFlag.dir : 0),
+                              depth: UInt8(offset + 1), kind: directory ? 1 : 3, name: $0)
+            }
+            parent = id
+        }
+        let store = IndexStore(scan: ScanOutput(buffers: [buffer], count: components.count + 1, homeIndex: .max, elapsed: 0, finishedAt: 0), config: config)
+        store.configFingerprint = config.fingerprint(volumeUUID: uuid); store.fsEventsUUID = journal
+        store.lastEventId = FSWatcher.currentEventId(); store.scanFinishedAt = UInt64(Date().timeIntervalSince1970)
+        let db = base.appendingPathComponent("catalog.oilfind"); try store.save(to: db.path)
+        try FileManager.default.removeItem(at: before); try Data([66]).write(to: after)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.6))
+        let manager = IndexManager(config: config, dbURL: db, volumeUUID: uuid, settingsDefaults: nil)
+        var scanned = false; manager.onScannerCreated = { _ in scanned = true }
+        manager.start(); defer { manager.stop() }
+        XCTAssertTrue(eventually {
+            guard let loaded = manager.store else { return false }
+            return loaded.read { loaded.containsPath(after.path) && !loaded.containsPath(before.path) }
+        })
+        XCTAssertFalse(scanned, "A saved catalog with valid volume history only supplements changes")
+    }
+
     func testDeviceRelativeStartupJournalReplay() throws {
         try skipIfCI("Requires the host APFS journal and event delivery.")
         var status = stat()
@@ -245,7 +284,8 @@ final class M21CoreTests: XCTestCase {
         }
         resumeScan.signal()
          XCTAssertTrue(eventually { first.state == .ready })
-        XCTAssertEqual(Searcher.search(Query.parse("regex:^scan-gap[.]txt$"), in: try XCTUnwrap(first.store))?.total, 1)
+        // A delayed event may land just after the scan; it must never be lost.
+        XCTAssertTrue(eventually { first.store.map { Searcher.search(Query.parse("regex:^scan-gap[.]txt$"), in: $0)?.total == 1 } ?? false })
         print("M21 first \(filesystem) count=\(first.store?.count ?? 0) journal=\(first.store?.fsEventsUUID ?? "nil") root=\(root.path)")
         try write(root, "live.txt")
         XCTAssertTrue(eventually { first.store.map { Searcher.search(Query.parse("regex:^live[.]txt$"), in: $0)?.total == 1 } ?? false })
