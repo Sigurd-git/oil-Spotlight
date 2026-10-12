@@ -134,8 +134,19 @@ final class ExternalDriveTests: XCTestCase {
         catalog.updateMounted([volume])
         index.complete(store(path: volume.path))
         try waitUntil("external result in the unified scope") {
-            controller.results.selectedItem?.source.id == self.uuid
+            guard let found = controller.results.snapshot else { return false }
+            return !found.filesPending && (0..<found.count).contains { row in
+                if case .file(let item)? = found.row(at: row) { return item.source.id == self.uuid }
+                return false
+            }
         }
+        let found = try XCTUnwrap(controller.results.snapshot)
+        let row = try XCTUnwrap((0..<found.count).first { row in
+            if case .file(let item)? = found.row(at: row) { return item.source.id == self.uuid }
+            return false
+        })
+        // A web candidate can arrive first; source refreshes preserve its selection.
+        controller.results.select(row)
         XCTAssertEqual(controller.scopes.scope, .all)
         XCTAssertEqual(controller.results.selectedItem?.path, volume.path + "/README.md")
 
