@@ -31,6 +31,7 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
     private var userNavigated = false, preserveFirstSelection = false
     private var requestedScope = SearchScope.all
     private var clipboardPreview: NSPanel?
+    private let clipboardImageIcons = IconProvider()
     private var clipboardActionGeneration = 0
     private var pendingClipboardID: UUID?
     private var timer: Timer?
@@ -463,7 +464,7 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
            let editor = searchField.input.currentEditor() {
             switch key {
             case "a": editor.selectAll(nil); return true
-            case "c" where editor.selectedRange.length > 0: editor.copy(nil); return true
+            case "c" where editor.selectedRange.length > 0: invalidateClipboardCopy(); editor.copy(nil); return true
             case "x": editor.cut(nil); return true
             case "v": editor.paste(nil); return true
             default: break
@@ -688,6 +689,7 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
         let query = searchField.text, scope = scopes.scope
         pendingClipboardID = entry.id
         if entry.filePaths != nil { footer.showMessage(L10n.text("clipboard.checkingFiles")) }
+        else if entry.image != nil { footer.showMessage(L10n.text("clipboard.preparingImage")) }
         clipboard.copy(entry, isCurrent: { [weak self] in
             guard let self, self.clipboardActionGeneration == generation, self.stateView == nil,
                   self.searchField.text == query, self.scopes.scope == scope, self.resultIsCurrent,
@@ -718,8 +720,16 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
         }
         if clipboardPreview?.isVisible == true { clipboardPreview?.close(); return }
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 620, height: 380), styleMask: [.titled, .closable, .resizable, .nonactivatingPanel], backing: .buffered, defer: false)
-        panel.title = entry.filePaths == nil ? L10n.text("scope.clipboard") : entry.displayTitle
+        panel.title = entry.filePaths == nil && entry.image == nil ? L10n.text("scope.clipboard") : entry.displayTitle
         panel.isReleasedWhenClosed = false; panel.level = .floating
+        if let image = entry.image {
+            let preview = NSImageView(frame: panel.contentView!.bounds.insetBy(dx: 16, dy: 16))
+            preview.autoresizingMask = [.width, .height]; preview.imageScaling = .scaleProportionallyUpOrDown
+            preview.setAccessibilityLabel(entry.displayTitle)
+            panel.contentView!.addSubview(preview)
+            clipboardImageIcons.clipboardImage(image, maximumSize: 1600) { [weak preview] rendered in preview?.image = rendered }
+            panel.center(); panel.orderFrontRegardless(); clipboardPreview = panel; return
+        }
         let scroll = NSScrollView(frame: panel.contentView!.bounds); scroll.autoresizingMask = [.width, .height]; scroll.hasVerticalScroller = true
         let text = NSTextView(frame: scroll.bounds); text.isEditable = false; text.string = entry.text; text.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
         text.textContainerInset = NSSize(width: 16, height: 16); text.autoresizingMask = [.width]; scroll.documentView = text
