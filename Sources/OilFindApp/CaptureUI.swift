@@ -34,17 +34,27 @@ final class CaptureOverlayController {
             window.contentView = view; windows.append(window); views.append(view); window.orderFrontRegardless()
         }
         let mouse = NSEvent.mouseLocation
-        windows.first(where: { $0.frame.contains(mouse) })?.makeKeyAndOrderFront(nil)
+        (windows.first(where: { $0.frame.contains(mouse) }) ?? windows.first)?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self else { return event }
-            if event.keyCode == 53 { self.onCancel?(); return nil }
-            if [36,76].contains(event.keyCode) { self.confirmSelection(); return nil }
-            if event.keyCode == 15 { self.reselect(); return nil }
-            if event.keyCode == 49 { self.windowMode.toggle(); self.reselect(); return nil }
+            guard let self, let window = event.window, self.windows.contains(where: { $0 === window }) else { return event }
+            _ = self.handleKey(event)
             return nil
         }
         redraw()
+    }
+    @discardableResult
+    func handleKey(_ event: NSEvent) -> Bool {
+        switch event.keyCode {
+        case 53: onCancel?()
+        case 36, 76: confirmSelection()
+        case 15: reselect()
+        case 49:
+            // A held Space key must switch modes only once per press.
+            if !event.isARepeat { windowMode.toggle(); clearSelection() }
+        default: return false
+        }
+        return true
     }
     private func position(for event: NSEvent) -> CGPoint {
         // Read the position attached to this event, rather than a later global
@@ -56,7 +66,11 @@ final class CaptureOverlayController {
         guard pendingSelection == nil else { return }
         current = position(for: event); hovered = catalog.windows.first { $0.frame.contains(current!) }; redraw()
     }
-    func down(with event: NSEvent) { reselect(); move(with: event); anchor = current }
+    func down(with event: NSEvent) {
+        // Drawing again replaces a pending window candidate with a region.
+        if pendingSelection != nil { reselect() } else { clearSelection() }
+        move(with: event); anchor = current
+    }
     func up(with event: NSEvent) {
         move(with: event)
         if windowMode, let hovered { select(.window(hovered.id)) }
@@ -73,7 +87,8 @@ final class CaptureOverlayController {
         guard let selection = pendingSelection else { return }
         pendingSelection = nil; onSelect?(selection)
     }
-    func reselect() { pendingSelection = nil; anchor = nil; current = nil; hovered = nil; redraw() }
+    func reselect() { windowMode = false; clearSelection() }
+    private func clearSelection() { pendingSelection = nil; anchor = nil; current = nil; hovered = nil; redraw() }
     var selectedRect: CGRect? {
         if let pendingSelection {
             switch pendingSelection {
