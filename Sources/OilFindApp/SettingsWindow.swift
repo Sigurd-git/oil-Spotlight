@@ -6,19 +6,20 @@ import UniformTypeIdentifiers
 import OilFindCore
 
 enum SettingsSection: String, CaseIterable {
-    case general, search, clipboard, index
+    case general, search, clipboard, capture, index
     var localizationKey: String { "settings." + rawValue }
 }
 
 final class SettingsModel: ObservableObject {
     @Published var section: SettingsSection = .general {
-        didSet { if section != oldValue { cancelRecording() } }
+        didSet { if section != oldValue { cancelRecording(); capture.cancelRecording() }; if section == .capture && !snapshot { capture.history.load() } }
     }
     @Published private(set) var language: AppLanguage
     @Published var launchAtLogin: Bool
     let topics: AITopicManager
     let update: UpdateManager
     let clipboard: ClipboardHistory
+    let capture: CaptureSettingsModel
     private var languageObserver: NSObjectProtocol?
     private let languageDefaults: UserDefaults
     private var coverageExplanation: CoverageExplanation?
@@ -65,13 +66,14 @@ final class SettingsModel: ObservableObject {
     private var keyMonitor: Any?
     private var timer: Timer?
 
-    init(snapshotStore: IndexStore? = nil, snapshot: Bool = false, languageDefaults: UserDefaults = .standard, preferences: UserDefaults = .standard, clipboard: ClipboardHistory? = nil) {
+    init(snapshotStore: IndexStore? = nil, snapshot: Bool = false, languageDefaults: UserDefaults = .standard, preferences: UserDefaults = .standard, clipboard: ClipboardHistory? = nil, capture: CaptureSettingsModel? = nil) {
         self.snapshot = snapshot
         self.preferences = preferences
         self.languageDefaults = languageDefaults
         self.language = L10n.language
         self.update = snapshot ? UpdateManager(snapshot: true, supportsAppUpdates: true) : .shared
         self.clipboard = clipboard ?? ClipboardHistory(snapshot: snapshot)
+        self.capture = capture ?? CaptureSettingsModel(defaults: preferences, snapshot: snapshot)
         launchAtLogin = snapshot ? false : SMAppService.mainApp.status == .enabled
         if !snapshot { SettingsPreferences.register() }
         let defaults = UserDefaults.standard
@@ -114,7 +116,7 @@ final class SettingsModel: ObservableObject {
         refresh(); timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.refresh() }
     }
-    func stopRefreshing() { timer?.invalidate(); timer = nil; cancelRecording() }
+    func stopRefreshing() { timer?.invalidate(); timer = nil; cancelRecording(); capture.cancelRecording() }
     func refresh() {
         let wasGranted = granted
         if !snapshot { launchAtLogin = SMAppService.mainApp.status == .enabled }
@@ -382,6 +384,7 @@ private struct SettingsForm: View {
                 case .general: generalSections
                 case .search: searchSections
                 case .clipboard: ClipboardSettingsSections(model: model, clipboard: model.clipboard, window: window)
+                case .capture: CaptureSettingsSections(model: model.capture, history: model.capture.history)
                 case .index: indexSections
                 }
             }
@@ -751,9 +754,10 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         (client as? ExcludedExtensionsField)?.editor
     }
     func windowWillClose(_ notification: Notification) { model.stopRefreshing() }
-    func windowDidResignKey(_ notification: Notification) { model.cancelRecording() }
+    func windowDidResignKey(_ notification: Notification) { model.cancelRecording(); model.capture.cancelRecording() }
     func windowDidBecomeKey(_ notification: Notification) {
         model.refresh()
         if !model.recording { model.onRetryHotKey?() }
+        if !model.capture.recording { model.capture.onRetryShortcut?() }
     }
 }

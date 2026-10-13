@@ -18,6 +18,10 @@ public enum Application {
         do { try UpdateExercise.start(arguments); NSApplication.shared.run(); exit(0) }
         catch { fputs("Oil Find update exercise: \(error)\n", stderr); exit(1) }
     }
+    if CaptureUpgradeExercise.handles(arguments) {
+        do { try CaptureUpgradeExercise.start(arguments); NSApplication.shared.run(); exit(0) }
+        catch { fputs("Oil Find capture upgrade exercise failed\n", stderr); exit(1) }
+    }
 #endif
     SystemUpdateFiles().registerLaunch(application: Bundle.main.bundleURL, current: UpdateManager.current)
     let app = NSApplication.shared

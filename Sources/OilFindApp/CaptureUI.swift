@@ -1,0 +1,174 @@
+import AppKit
+import SwiftUI
+
+private final class CaptureOverlayWindow: NSWindow {
+    override var canBecomeKey: Bool { true }
+}
+final class CaptureOverlayController {
+    #if DEBUG
+    static func snapshotView() -> NSView {
+        let view = CaptureOverlayView(frame: CGRect(x: 0, y: 0, width: 900, height: 560))
+        view.selection = CGRect(x: 160, y: 100, width: 570, height: 340); return view
+    }
+    #endif
+    private var windows: [NSWindow] = [], views: [CaptureOverlayView] = []
+    private let catalog: CaptureCatalog, mainHeight: CGFloat
+    private var windowMode: Bool, anchor: CGPoint?, current: CGPoint?
+    private var hovered: CaptureWindow?
+    private var keyMonitor: Any?
+    var onSelect: ((CaptureSelection) -> Void)?, onCancel: (() -> Void)?
+    init(catalog: CaptureCatalog, windowMode: Bool) {
+        self.catalog = catalog; self.windowMode = windowMode
+        mainHeight = NSScreen.screens.first?.frame.height ?? CGDisplayBounds(CGMainDisplayID()).height
+    }
+    func present() {
+        for display in catalog.displays {
+            let window = CaptureOverlayWindow(contentRect: CaptureGeometry.cocoa(display.frame, mainHeight: mainHeight), styleMask: .borderless, backing: .buffered, defer: false)
+            window.backgroundColor = .clear; window.isOpaque = false; window.hasShadow = false; window.level = .screenSaver
+            window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]; window.acceptsMouseMovedEvents = true; window.isReleasedWhenClosed = false
+            let view = CaptureOverlayView(frame: CGRect(origin: .zero, size: display.frame.size)); view.controller = self
+            window.contentView = view; windows.append(window); views.append(view); window.orderFrontRegardless()
+        }
+        let mouse = NSEvent.mouseLocation
+        windows.first(where: { $0.frame.contains(mouse) })?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self else { return event }
+            if event.keyCode == 53 { self.onCancel?(); return nil }
+            if event.keyCode == 49 { self.windowMode.toggle(); self.anchor = nil; self.redraw(); return nil }
+            return nil
+        }
+    }
+    private func position() -> CGPoint { let point = NSEvent.mouseLocation; return CGPoint(x: point.x, y: mainHeight - point.y) }
+    func move() {
+        current = position(); hovered = catalog.windows.first { $0.frame.contains(current!) }; redraw()
+    }
+    func down() { move(); anchor = current }
+    func up() {
+        move()
+        if windowMode, let hovered { onSelect?(.window(hovered.id)) }
+        else if let anchor, let current {
+            let rect = CGRect.between(anchor, current).integral
+            if rect.width >= 2 && rect.height >= 2 { onSelect?(.region(rect)) }
+        }
+    }
+    var selectedRect: CGRect? { windowMode ? hovered?.frame : anchor.flatMap { start in current.map { CGRect.between(start, $0) } } }
+    private func redraw() {
+        for view in views {
+            if let rect = selectedRect, let window = view.window {
+                let cocoa = CaptureGeometry.cocoa(rect, mainHeight: mainHeight)
+                view.selection = view.convert(window.convertFromScreen(cocoa), from: nil)
+            } else { view.selection = nil }
+            view.label = windowMode ? [hovered?.owner, hovered?.title].compactMap { $0 }.joined(separator: " · ") : L10n.text("capture.overlay.hint")
+            view.needsDisplay = true
+        }
+    }
+    func close() { if let keyMonitor { NSEvent.removeMonitor(keyMonitor); self.keyMonitor = nil }; windows.forEach { $0.close() }; windows = []; views = [] }
+    deinit { close() }
+}
+private final class CaptureOverlayView: NSView {
+    weak var controller: CaptureOverlayController?
+    var selection: CGRect?, label = L10n.text("capture.overlay.hint")
+    override func updateTrackingAreas() {
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .activeAlways, .inVisibleRect], owner: self)); super.updateTrackingAreas()
+    }
+    override func mouseMoved(with event: NSEvent) { controller?.move() }
+    override func mouseDown(with event: NSEvent) { controller?.down() }
+    override func mouseDragged(with event: NSEvent) { controller?.move() }
+    override func mouseUp(with event: NSEvent) { controller?.up() }
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.black.withAlphaComponent(0.22).setFill(); bounds.fill()
+        if let selection, let context = NSGraphicsContext.current?.cgContext {
+            context.saveGState(); context.setBlendMode(.clear); context.fill(selection); context.restoreGState()
+            NSColor.controlAccentColor.setStroke(); let path = NSBezierPath(rect: selection); path.lineWidth = 2; path.stroke()
+        }
+        let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 16, weight: .medium), .foregroundColor: NSColor.white, .backgroundColor: NSColor.black.withAlphaComponent(0.7)]
+        (label as NSString).draw(at: CGPoint(x: 24, y: 24), withAttributes: attributes)
+    }
+}
+
+final class CaptureScrollModel: ObservableObject {
+    @Published var height = 0
+    @Published var additions = 0
+    @Published var status = L10n.text("capture.scroll.hint")
+    var finish: (() -> Void)?, cancel: (() -> Void)?
+}
+struct CaptureScrollView: View {
+    @ObservedObject var model: CaptureScrollModel
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(L10n.text("capture.action.scroll")).font(.headline)
+            Text(model.status).font(.caption).fixedSize(horizontal: false, vertical: true)
+            Text(L10n.text("capture.scroll.lines", String(model.height), String(model.additions))).monospacedDigit()
+            HStack { Button(L10n.text("action.cancel")) { model.cancel?() }; Button(L10n.text("capture.scroll.finish")) { model.finish?() }.buttonStyle(.borderedProminent) }
+        }.padding(16).frame(width: 300)
+    }
+}
+
+struct CaptureHistoryView: View {
+    @ObservedObject var history: CaptureHistory
+    var open: (CaptureArchiveEntry) -> Void
+    var body: some View {
+        VStack {
+            Text(L10n.text("capture.history.warning")).font(.caption).foregroundStyle(.secondary).padding()
+            if let error = history.error { Text(error).foregroundStyle(.red).padding() }
+            if history.entries.isEmpty { Text(L10n.text("capture.history.empty")).padding(); Spacer() }
+            else {
+                List(history.entries) { entry in
+                    HStack {
+                        CaptureThumbnail(history: history, entry: entry)
+                        VStack(alignment: .leading) { Text(entry.title); Text("\(entry.width) × \(entry.height) · \(entry.updatedAt.formatted())").font(.caption).foregroundStyle(.secondary) }
+                        Spacer(); Button(L10n.text("capture.action.edit")) { open(entry) }
+                    }.contextMenu { Button(L10n.text("capture.history.delete")) { history.remove(entry.id) } }
+                }
+            }
+        }.frame(minWidth: 560, minHeight: 380).onAppear { history.load() }
+    }
+}
+private struct CaptureThumbnail: View {
+    let history: CaptureHistory, entry: CaptureArchiveEntry
+    @State var image: NSImage?
+    var body: some View {
+        Group { if let image { Image(nsImage: image).resizable().scaledToFit() } else { Image(systemName: "photo") } }.frame(width: 90, height: 60)
+            .onAppear { history.thumbnail(entry) { value in if let cg = try? value?.image(maximumDimension: 160) { image = NSImage(cgImage: cg, size: .zero) } } }
+            .onDisappear { image = nil }
+    }
+}
+
+final class CapturePinController: NSWindowController, NSWindowDelegate {
+    let image: CGImage?, text: String?
+    var onCopy: (() -> Void)?, onClose: (() -> Void)?
+    init(image: CGImage? = nil, text: String? = nil) {
+        self.image = image; self.text = text
+        let window = NSPanel(contentRect: CGRect(x: 0, y: 0, width: 360, height: image.map { min(600, max(160, 360 * Double($0.height) / Double($0.width))) } ?? 240), styleMask: [.titled, .closable, .resizable, .utilityWindow], backing: .buffered, defer: false)
+        window.title = L10n.text("capture.action.pin"); window.level = .floating; window.hidesOnDeactivate = false; window.isReleasedWhenClosed = false
+        window.isMovableByWindowBackground = true; window.collectionBehavior = [.fullScreenAuxiliary]
+        let content: NSView
+        if let image {
+            let view = NSImageView(); view.image = NSImage(cgImage: image, size: .zero); view.imageScaling = .scaleProportionallyUpOrDown; content = view
+        } else {
+            let scroll = NSScrollView(); scroll.hasVerticalScroller = true
+            let view = NSTextView(); view.string = text ?? ""; view.isEditable = false; view.isRichText = false; view.font = .systemFont(ofSize: 17); view.autoresizingMask = [.width]; view.isVerticallyResizable = true
+            view.minSize = .zero; view.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+            view.textContainer?.widthTracksTextView = true
+            scroll.documentView = view; content = scroll
+        }
+        let copy = NSButton(title: L10n.text("launcher.copy"), target: nil, action: nil)
+        let spaces = NSButton(checkboxWithTitle: L10n.text("capture.pin.allSpaces"), target: nil, action: nil)
+        let alpha = NSSlider(value: 1, minValue: 0.2, maxValue: 1, target: nil, action: nil); alpha.toolTip = L10n.text("capture.pin.opacity")
+        let controls = NSStackView(views: [copy, spaces, alpha]); controls.orientation = .horizontal
+        let stack = NSStackView(views: [content, controls]); stack.orientation = .vertical; stack.edgeInsets = NSEdgeInsets(top: 4, left: 6, bottom: 6, right: 6)
+        stack.alignment = .leading; window.contentView = stack
+        content.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -12).isActive = true
+        content.heightAnchor.constraint(equalTo: stack.heightAnchor, constant: -42).isActive = true
+        super.init(window: window); window.delegate = self
+        copy.target = self; copy.action = #selector(copyContent); spaces.target = self; spaces.action = #selector(changeSpaces(_:)); alpha.target = self; alpha.action = #selector(changeAlpha(_:))
+        window.center()
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    @objc private func copyContent() { onCopy?() }
+    @objc private func changeSpaces(_ button: NSButton) { window?.collectionBehavior = button.state == .on ? [.canJoinAllSpaces, .fullScreenAuxiliary] : [.fullScreenAuxiliary] }
+    @objc private func changeAlpha(_ slider: NSSlider) { window?.alphaValue = slider.doubleValue }
+    func windowWillClose(_ notification: Notification) { onClose?() }
+}

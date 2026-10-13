@@ -1,5 +1,6 @@
 import AppKit
 import OilFindCore
+import SwiftUI
 
 enum SnapshotError: Error, CustomStringConvertible {
     case failed(String)
@@ -25,8 +26,9 @@ enum Snapshot {
         appExtension?.languageDidChange(chinese: L10n.chinese)
         let state = values["--state"] ?? "results"
         let launcherStates: Set<String> = ["unified", "clipboard", "clipboard-files", "clipboard-images", "system-settings", "calculator", "currency", "currency-loading", "currency-unavailable"]
-        let settingsStates: Set<String> = ["settings", "clipboard-permission", "shortcut-conflict"]
-        guard launcherStates.contains(state) || settingsStates.contains(state) || ["results", "recent", "empty", "indexing", "welcome", "toast", "menu", "no-access", "diagnostic", "syntax", "update-available", "update-downloading", "update-failed", "update-latest"].contains(state) else { throw SnapshotError.failed("Invalid state: \(state)") }
+        let settingsStates: Set<String> = ["settings", "clipboard-permission", "shortcut-conflict", "capture-permission", "capture-shortcut"]
+        let captureStates: Set<String> = ["capture-editor", "capture-long", "capture-overlay", "capture-history"]
+        guard launcherStates.contains(state) || settingsStates.contains(state) || captureStates.contains(state) || ["results", "recent", "empty", "indexing", "welcome", "toast", "menu", "no-access", "diagnostic", "syntax", "update-available", "update-downloading", "update-failed", "update-latest"].contains(state) else { throw SnapshotError.failed("Invalid state: \(state)") }
         let settingsSection: SettingsSection?
         if let section = values["--settings-section"] {
             guard let parsed = SettingsSection(rawValue: section) else { throw SnapshotError.failed("Invalid settings section: \(section)") }
@@ -40,7 +42,7 @@ enum Snapshot {
         let sorts: [String: SortKey] = ["relevance": .relevance, "name": .name, "modified": .modified, "size": .size]
         guard let key = sorts[sort], let selection = Int(values["--select"] ?? "0"), selection >= 0 else { throw SnapshotError.failed("Invalid sort or selected row") }
         var store: IndexStore?
-        let needsIndex = !launcherStates.contains(state) && !settingsStates.contains(state) && !state.hasPrefix("update-") && !["indexing", "welcome", "menu"].contains(state)
+        let needsIndex = !launcherStates.contains(state) && !settingsStates.contains(state) && !captureStates.contains(state) && !state.hasPrefix("update-") && !["indexing", "welcome", "menu"].contains(state)
         if needsIndex || (state == "settings" && values["--db"] != nil) {
             let fallback = NSHomeDirectory() + "/Library/Caches/Oil Find/cli-index.oilfind"
             let defaultPath = FileManager.default.fileExists(atPath: AppDelegate.dbURL.path) ? AppDelegate.dbURL.path : fallback
@@ -57,6 +59,27 @@ enum Snapshot {
         }
         let app = NSApplication.shared
         app.setActivationPolicy(.prohibited)
+        if captureStates.contains(state) {
+            let document = try CaptureFixtures.document(), view: NSView
+            let editor: CaptureEditorController?
+            switch state {
+            case "capture-overlay": view = CaptureOverlayController.snapshotView(); editor = nil
+            case "capture-long":
+                let model = CaptureScrollModel(); model.height = 5800; model.additions = 8
+                view = NSHostingView(rootView: CaptureScrollView(model: model)); view.frame.size = CGSize(width: 332, height: 200); editor = nil
+            case "capture-history":
+                let history = CaptureHistory()
+                history.prepareSnapshot([CaptureArchiveEntry(id: document.id, blob: UUID(), title: document.title, updatedAt: Date(timeIntervalSince1970: 1791763200), width: document.original.width, height: document.original.height, bytes: document.storageBytes)], thumbnail: document.original)
+                view = NSHostingView(rootView: CaptureHistoryView(history: history, open: { _ in })); view.frame.size = CGSize(width: 650, height: 520); editor = nil
+            default:
+                let controller = CaptureEditorController(document: document); controller.model.preview = try document.original.image(maximumDimension: 1800)
+                controller.model.selected = Set(document.annotations.prefix(1).map(\.id)); view = controller.window!.contentView!; editor = controller
+            }
+            let appearance = NSAppearance(named: appearance == "dark" ? .darkAqua : .aqua)
+            view.appearance = appearance; editor?.window?.appearance = appearance
+            RunLoop.main.run(until: Date().addingTimeInterval(0.25)); view.layoutSubtreeIfNeeded()
+            try write(view: view, appearance: appearance, output: output); return
+        }
         if state == "menu" {
             app.appearance = NSAppearance(named: appearance == "dark" ? .darkAqua : .aqua)
             let delegate = AppDelegate(appExtension: appExtension, externalDrives: externalDrives)
@@ -140,6 +163,9 @@ enum Snapshot {
                 model.keyCode = Shortcut.defaultKeyCode; model.modifiers = Shortcut.defaultModifiers
                 model.shortcutError = L10n.text("settings.shortcutConflict")
                 model.actualShortcut = Shortcut.symbols(keyCode: Shortcut.fallbackKeyCode, modifiers: Shortcut.fallbackModifiers)
+            } else if state.hasPrefix("capture-") {
+                model.section = .capture
+                model.capture.granted = false; model.capture.status(bound: false)
             }
             let controller = SettingsWindowController(model: model, appExtension: appExtension, externalDrives: externalDrives)
             guard let window = controller.window, let view = window.contentView else { throw SnapshotError.failed("Cannot create settings view") }

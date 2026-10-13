@@ -189,6 +189,11 @@ private func probe(_ arguments: [String]) throws {
         try io.writeAtomically(sealed.combined!)
         try require(try storage.load().first?.id == legacyID, "legacy-real-storage-readback")
         try inspect(archiveURL, entries: [ClipboardEntry(id: legacyID, text: legacyText)])
+        var document = CaptureDocument(original: try CaptureRaster(image: unwrapImageContext().makeImage()!))
+        document.id = legacyID; document.title = "Synthetic editable screenshot"
+        document.annotations = [CaptureAnnotation(tool: .text, rect: CGRect(x: 1, y: 1, width: 20, height: 12), fontSize: 8, text: "Original layer")]
+        let captures = CaptureArchive(directory: root.appendingPathComponent("captures"), keys: keys, existingMasterArchive: { true })
+        try captures.save(document, retention: .init(), now: Date())
         print("PASS createlegacy version=1 count=1")
         #else
         throw ProbeFailure(check: "createlegacy-requires-v1-binary")
@@ -198,6 +203,12 @@ private func probe(_ arguments: [String]) throws {
         throw ProbeFailure(check: "upgrade-requires-v2-binary")
         #else
         let original = try Data(contentsOf: archiveURL)
+        let captures = CaptureArchive(directory: root.appendingPathComponent("captures"), keys: keys, existingMasterArchive: { true })
+        try captures.load()
+        var document = try captures.document(captures.entries[0])
+        try require(document.id == legacyID && document.annotations.count == 1, "capture-editable-old-build-restore")
+        document.annotations.append(CaptureAnnotation(tool: .redact, rect: CGRect(x: 2, y: 3, width: 10, height: 8)))
+        try captures.save(document, retention: .init(), now: Date())
         let result = try history(root, storage: storage, pasteboard: board)
         try waitFor { !result.entries.isEmpty || result.error != nil }
         try require(result.error == nil && result.entries.count == 1, "v2-legacy-load")
@@ -243,6 +254,10 @@ private func probe(_ arguments: [String]) throws {
         #endif
     } else if command == "restore" {
         let expected = try PropertyListDecoder().decode(Manifest.self, from: Data(contentsOf: manifestURL)).entries
+        let captures = CaptureArchive(directory: root.appendingPathComponent("captures"), keys: keys, existingMasterArchive: { true })
+        try captures.load()
+        let document = try captures.document(captures.entries[0])
+        try require(document.annotations.count == 2 && document.annotations[1].tool == .redact, "capture-editable-restart-restore")
         let result = try history(root, storage: storage, pasteboard: board)
         try waitFor { !result.entries.isEmpty || result.error != nil }
         try require(result.error == nil && result.entries == expected, "cross-process-all-IDs-content-metadata")

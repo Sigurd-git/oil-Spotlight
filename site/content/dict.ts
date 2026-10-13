@@ -12,6 +12,10 @@ export interface HomeItem {
 }
 
 interface LandingCopy {
+  captureTitle: string;
+  captureBody: string;
+  capturePrivacy: string;
+  captureShortcut: string;
   title: string;
   description: string;
   placeholder: string;
@@ -94,6 +98,10 @@ export const GITHUB_URL = 'https://github.com/oil-oil/oil-find';
 
 export const dict: Record<Language, LandingCopy> = {
   zh: {
+    captureTitle: '原生截图、标注与可编辑历史',
+    captureBody: '选区、窗口、鼠标所在屏幕和手动滚动长截图；箭头、文字、画笔、高亮、马赛克、实色遮挡、裁剪、Emoji、贴纸及素材复用。截图完成后先编辑，再选择复制、PNG / JPEG 保存或钉住。已有图片与剪贴板图片也可继续编辑。识字由用户主动执行，在本机使用 Vision。',
+    capturePrivacy: '独立截图历史默认加密保存 7 天、100 张，最多 256 MiB；可编辑历史保留打码前原图，导出文件只含合并后的像素。钉图文仅在本次运行显示。此图是合成应用快照，网站不会截取屏幕。',
+    captureShortcut: '默认 ⌘⇧4；如被系统截屏占用，在设置 → 截图查看冲突引导，搜索命令和菜单栏仍可用。首次捕获需要本人授予屏幕录制权限。',
     title: 'Oil Find：文件、应用、剪贴板，一处搜索',
     description: '按 ⌘Space 打开 macOS 搜索面板。搜索文件与应用，选择性保存剪贴板文本、链接、图片和本地文件路径引用，离线计算和单位换算；网页搜索只在你提交时打开。免费版采用 MIT 许可证并始终免费；Pro 是独立的闭源付费扩展。',
     'nav.speed': '功能', 'nav.syntax': '语法', 'nav.github': 'GitHub', 'nav.download': '下载', 'nav.lang': 'EN',
@@ -110,7 +118,7 @@ export const dict: Record<Language, LandingCopy> = {
     'speed.fine': '下面的范围演示只使用网页内置的合成样例，不会读取你的文件、剪贴板或搜索历史。',
     'syn.h': '想找得更准，就多写一点',
     'syn.sub': '点一行，把它填进上面的搜索框。',
-    'note.privacy.h': '隐私', 'note.privacy': '文件引擎只读取名称、大小和修改时间。剪贴板记录默认关闭，启用后保存获准的文本、链接、粘贴板图片和本地文件/文件夹路径引用，在本机加密并由钥匙串保护；图片保留原始编码内容，不做 OCR 或联网，单图最多 16 MiB、6400 万像素，历史总量最多 32 MiB；Finder 复制图片文件仍只保存路径，不读取正文。敏感、临时、自动生成标记、来源应用排除及尚未生成的文件承诺限制继续生效。汇率来源只接收固定的公开币种列表，不发送金额或完整查询。网页搜索只在你选择并提交后打开；fork 构建不连接上游官方应用更新服务。',
+    'note.privacy.h': '隐私', 'note.privacy': '文件引擎只读取名称、大小和修改时间。剪贴板记录默认关闭，启用后保存获准的文本、链接、粘贴板图片和本地文件/文件夹路径引用，在本机加密并由钥匙串保护；图片保留原始编码内容，不自动做 OCR 或联网，可主动在截图工具中识字，单图最多 16 MiB、6400 万像素，历史总量最多 32 MiB；Finder 复制图片文件仍只保存路径，不读取正文。敏感、临时、自动生成标记、来源应用排除及尚未生成的文件承诺限制继续生效。汇率来源只接收固定的公开币种列表，不发送金额或完整查询。网页搜索只在你选择并提交后打开；fork 构建不连接上游官方应用更新服务。 独立截图历史和素材使用派生密钥加密；可编辑历史保留打码前原图，导出仅含最终像素。截图历史默认 7 天、100 张、256 MiB，可关闭。屏幕录制只在主动截图时请求，钉图文退出后不恢复。',
     'source.download': '下载 macOS 版',
     'source.github': '在 GitHub 上查看',
     'note.open.h': '第一次打开', 'note.open': '应用还没有经过苹果公证。双击后如果被拦下，去「系统设置 → 隐私与安全性」，在底部点「仍要打开」。只需要一次。',
@@ -139,7 +147,7 @@ export const dict: Record<Language, LandingCopy> = {
     scopeSettings: ['键盘快捷键 · 键盘', '隐私与安全性 · 系统设置', '显示器 · 显示'],
     scopeClips: ['会议安排：周四下午 2 点', 'https://example.com/research', '截图示例 · PNG 图片'],
     scopeSampleTag: '合成示例',
-    scopeClipboardNote: '应用中的剪贴板历史默认关闭，升级保留已有开启状态和偏好，并兼容原 AES 加密文本历史。启用后记录获准的文本、链接、截图及 ImageIO 可解码的栅格图片（如 PNG、JPEG、TIFF、GIF、HEIC、WebP、BMP），以及本地文件/文件夹路径引用。图片保存原始编码内容和格式、像素尺寸元数据；单图最多 16 MiB、6400 万像素，历史总量最多 32 MiB。图片不做 OCR 或联网，行内显示缩略图并支持预览；⌘C 恢复真实图片及兼容 PNG 表示。Finder 复制的图片文件仍只存路径，不读取文件。一组多文件显示名称和数量，可按名称或路径搜索；文件历史项按 ⌘C 恢复文件 URL，回 Finder 按 ⌘V 复制文件。Return 沿用既有目标应用、焦点和辅助功能权限检查后尝试粘贴，检查失败时只复制并提示。文件移动或删除后无法恢复；整组路径检查失败会保留当前剪贴板，并提示重新复制。敏感标记、来源应用排除和暂停规则仍生效，可暂停、清空或排除来源应用。此处内容仅为合成演示。',
+    scopeClipboardNote: '应用中的剪贴板历史默认关闭，升级保留已有开启状态和偏好，并兼容原 AES 加密文本历史。启用后记录获准的文本、链接、截图及 ImageIO 可解码的栅格图片（如 PNG、JPEG、TIFF、GIF、HEIC、WebP、BMP），以及本地文件/文件夹路径引用。图片保存原始编码内容和格式、像素尺寸元数据；单图最多 16 MiB、6400 万像素，历史总量最多 32 MiB。图片不会自动做 OCR 或联网，可主动在截图工具中识字；行内显示缩略图并支持预览；⌘C 恢复真实图片及兼容 PNG 表示。Finder 复制的图片文件仍只存路径，不读取文件。一组多文件显示名称和数量，可按名称或路径搜索；文件历史项按 ⌘C 恢复文件 URL，回 Finder 按 ⌘V 复制文件。Return 沿用既有目标应用、焦点和辅助功能权限检查后尝试粘贴，检查失败时只复制并提示。文件移动或删除后无法恢复；整组路径检查失败会保留当前剪贴板，并提示重新复制。敏感标记、来源应用排除和暂停规则仍生效，可暂停、清空或排除来源应用。此处内容仅为合成演示。',
     scopeCalcLabel: '输入算式或换算示例', scopeCalcResult: '离线结果',
     scopeDemoCurrencyResult: '合成演示结果', scopeDemoCurrencyRate: (date: string) => `演示汇率：1 USD = 7.00 CNY · 日期：${date}。固定示例值，不联网，也不是当前汇率。RMB 对应 CNY。`,
     scopeDemoCopyHint: '按 Return 或 ⌘C 复制演示结果。', scopeDemoCopied: '已复制合成结果。', scopeDemoCopyUnavailable: '浏览器未允许复制；请手动选择结果。',
@@ -166,6 +174,10 @@ export const dict: Record<Language, LandingCopy> = {
     ],
   },
   en: {
+    captureTitle: 'Native screenshots, annotations and editable history',
+    captureBody: 'Capture a region, window, the display under the pointer or a manually scrolled page. Add arrows, text, pen strokes, highlights, mosaic, solid redaction, crop, Emoji, stickers and reusable materials. Edit first, then copy, save PNG / JPEG or pin. Existing images and clipboard pictures can be edited too. Vision OCR runs on this Mac only when requested.',
+    capturePrivacy: 'Independent screenshot history is encrypted, with defaults of 7 days, 100 images and 256 MiB. Editable history retains originals before redaction; exports contain flattened pixels only. Pins last for this session. This is a synthetic app snapshot; the website does not capture your screen.',
+    captureShortcut: 'Default: ⌘⇧4. If macOS uses the shortcut, Settings → Capture explains how to resolve it; search commands and the menu bar still work. The first capture requires your Screen Recording authorization.',
     title: 'Oil Find: files, apps and clipboard in one search panel',
     description: '⌘Space searches files, apps, settings & clipboard. Opt-in encrypted text and image history; web opens on submit. Fork disables upstream updates.',
     'nav.speed': 'Features', 'nav.syntax': 'Syntax', 'nav.github': 'GitHub', 'nav.download': 'Download', 'nav.lang': '中文',
@@ -182,7 +194,7 @@ export const dict: Record<Language, LandingCopy> = {
     'speed.fine': 'The scope demo below uses built-in synthetic examples only. It never reads your files, clipboard or search history.',
     'syn.h': 'Write a little more to find exactly that',
     'syn.sub': 'Click a row to try it in the search field above.',
-    'note.privacy.h': 'Privacy', 'note.privacy': 'The file engine reads names, sizes and modification dates only. Clipboard history is off by default; when enabled, it saves eligible text, links, clipboard images and path references to local files and folders, encrypted locally and protected with Keychain. Images retain their original encoded bytes; they are not OCR-processed or sent over the network, and each image is limited to 16 MiB and 64 megapixels within a 32 MiB history cap. Finder copies of image files remain path references and are not read. File references store paths without backing up files or reading contents. Concealed, transient and autogenerated markers, source app exclusions and ungenerated file-promise exclusions still apply. Currency requests contain only a fixed list of public currency pairs, never the amount or full query. Web search opens only after you choose and submit; fork builds do not connect to the upstream official app-update service.',
+    'note.privacy.h': 'Privacy', 'note.privacy': 'The file engine reads names, sizes and modification dates only. Clipboard history is off by default; when enabled, it saves eligible text, links, clipboard images and path references to local files and folders, encrypted locally and protected with Keychain. Images retain their original encoded bytes; they are not automatically OCR-processed or sent over the network; local OCR is available when explicitly requested, and each image is limited to 16 MiB and 64 megapixels within a 32 MiB history cap. Finder copies of image files remain path references and are not read. File references store paths without backing up files or reading contents. Concealed, transient and autogenerated markers, source app exclusions and ungenerated file-promise exclusions still apply. Currency requests contain only a fixed list of public currency pairs, never the amount or full query. Web search opens only after you choose and submit; fork builds do not connect to the upstream official app-update service. Independent screenshot history and materials are encrypted with derived keys. Editable history retains originals before redaction; exports contain flattened pixels only. Defaults are 7 days, 100 images and 256 MiB, and recording can be disabled. Screen Recording is requested only on capture; pins are not restored after exit.',
     'source.download': 'Download for macOS',
     'source.github': 'View on GitHub',
     'note.open.h': 'Opening it the first time', 'note.open': 'The app isn’t notarized by Apple yet. If macOS blocks it, go to System Settings → Privacy & Security and click “Open Anyway” at the bottom. Once is enough.',
@@ -212,7 +224,7 @@ export const dict: Record<Language, LandingCopy> = {
     scopeSettings: ['Keyboard Shortcuts · Keyboard', 'Privacy & Security · System Settings', 'Displays · Display'],
     scopeClips: ['Meeting plan: Thursday at 2 pm', 'https://example.com/research', 'Screenshot sample · PNG image'],
     scopeSampleTag: 'Synthetic sample',
-    scopeClipboardNote: 'Clipboard history in the app is off by default. Upgrades preserve your enabled state and preferences, and existing AES-encrypted text history stays compatible. When enabled, it records eligible text, links, screenshots and raster images decodable by ImageIO (such as PNG, JPEG, TIFF, GIF, HEIC, WebP and BMP), plus local file/folder path references. Images keep their original encoded bytes and format/dimension metadata; each is limited to 16 MiB and 64 megapixels within a 32 MiB history cap. Images are not OCR-processed or sent online; rows show thumbnails and support preview. ⌘C restores the actual image with a compatible PNG representation. Finder copies of image files remain path references and are not read. A file group shows names and a count; search by name or path. Select a file history entry and press ⌘C to restore file URLs, then ⌘V in Finder to copy the files. Return attempts to paste after the existing target-app, focus and Accessibility permission checks; a failed check only copies and tells you. Moved or deleted files cannot be recovered; if any path in the group is missing, the current clipboard is preserved and you are asked to copy the files again. Sensitive-item markers, source-app exclusions and pause controls still apply. This page uses synthetic examples only.',
+    scopeClipboardNote: 'Clipboard history in the app is off by default. Upgrades preserve your enabled state and preferences, and existing AES-encrypted text history stays compatible. When enabled, it records eligible text, links, screenshots and raster images decodable by ImageIO (such as PNG, JPEG, TIFF, GIF, HEIC, WebP and BMP), plus local file/folder path references. Images keep their original encoded bytes and format/dimension metadata; each is limited to 16 MiB and 64 megapixels within a 32 MiB history cap. Images are not automatically OCR-processed or sent online; you can request local OCR through the capture tool; rows show thumbnails and support preview. ⌘C restores the actual image with a compatible PNG representation. Finder copies of image files remain path references and are not read. A file group shows names and a count; search by name or path. Select a file history entry and press ⌘C to restore file URLs, then ⌘V in Finder to copy the files. Return attempts to paste after the existing target-app, focus and Accessibility permission checks; a failed check only copies and tells you. Moved or deleted files cannot be recovered; if any path in the group is missing, the current clipboard is preserved and you are asked to copy the files again. Sensitive-item markers, source-app exclusions and pause controls still apply. This page uses synthetic examples only.',
     scopeCalcLabel: 'Enter an expression or conversion', scopeCalcResult: 'Offline result',
     scopeDemoCurrencyResult: 'Synthetic demo result', scopeDemoCurrencyRate: (date: string) => `Synthetic demo rate: 1 USD = 7.00 CNY · Date: ${date}. Fixed example data; no network request and not a current rate. RMB maps to CNY.`,
     scopeDemoCopyHint: 'Press Return or ⌘C to copy the demo result.', scopeDemoCopied: 'Synthetic result copied.', scopeDemoCopyUnavailable: 'The browser did not allow copying; select the result manually.',
