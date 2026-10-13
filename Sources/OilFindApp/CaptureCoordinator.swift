@@ -93,7 +93,7 @@ final class CaptureCoordinator: NSObject {
         let model = CaptureScrollModel(), stitcher = CaptureScrollStitcher()
         self.scrollModel = model; self.stitcher = stitcher
         let window = NSPanel(contentRect: CGRect(x: rect.maxX + 16, y: 100, width: 330, height: 170), styleMask: [.titled, .utilityWindow], backing: .buffered, defer: false)
-        window.title = L10n.text("capture.action.scroll"); window.level = .floating; window.isReleasedWhenClosed = false
+        window.title = L10n.text("capture.action.scroll"); window.level = .floating; window.isReleasedWhenClosed = false; window.isRestorable = false
         window.contentView = NSHostingView(rootView: CaptureScrollView(model: model)); window.center(); window.orderFrontRegardless(); scrollWindow = window
         model.cancel = { [weak self] in self?.cancel() }
         model.finish = { [weak self] in
@@ -335,7 +335,7 @@ final class CaptureCoordinator: NSObject {
         history.load()
         if historyWindow == nil {
             let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 650, height: 520), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
-            window.title = L10n.text("capture.action.history"); window.isReleasedWhenClosed = false
+            window.title = L10n.text("capture.action.history"); window.isReleasedWhenClosed = false; window.isRestorable = false
             window.contentView = NSHostingView(rootView: CaptureHistoryView(history: history) { [weak self] entry in self?.history.read(entry) { result in
                 switch result { case .success(let document): self?.open(document, saved: true); case .failure(let error): self?.showError(error) }
             } }); window.center(); historyWindow = window

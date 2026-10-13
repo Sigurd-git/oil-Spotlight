@@ -283,6 +283,7 @@ final class CaptureTests: XCTestCase {
     }
     func testTextWindowsAllocateReadableContentAndReleaseOnClose() {
         let controller = CaptureTextController(text: "合成 OCR\nOil Find 12345"), window = controller.window!
+        XCTAssertFalse(window.isRestorable)
         window.contentView!.layoutSubtreeIfNeeded()
         let scroll = (window.contentView as! NSStackView).arrangedSubviews[0]
         XCTAssertGreaterThan(scroll.frame.width, 300); XCTAssertGreaterThan(scroll.frame.height, 200)
@@ -291,6 +292,7 @@ final class CaptureTests: XCTestCase {
         controller.windowWillClose(Notification(name: NSWindow.willCloseNotification, object: window))
         XCTAssertTrue(closed); window.close()
         let pin = CapturePinController(text: "Synthetic pin"), pinWindow = pin.window!
+        XCTAssertFalse(pinWindow.isRestorable)
         pinWindow.contentView!.layoutSubtreeIfNeeded()
         let pinContent = (pinWindow.contentView as! NSStackView).arrangedSubviews[0]
         XCTAssertGreaterThan(pinContent.frame.width, 250); XCTAssertGreaterThan(pinContent.frame.height, 100)
