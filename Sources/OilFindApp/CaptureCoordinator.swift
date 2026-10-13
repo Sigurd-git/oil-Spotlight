@@ -82,7 +82,8 @@ final class CaptureCoordinator: NSObject {
                     self.overlay = overlay
                     overlay.onCancel = { [weak self] in
                         guard let self, token == self.generation else { return }; self.cancel()
-                        if directCopy { self.restoreFocus(front) }
+                        // Cancelling after focus loss must not reactivate the previous app.
+                        if directCopy, NSWorkspace.shared.frontmostApplication?.processIdentifier == ProcessInfo.processInfo.processIdentifier { self.restoreFocus(front) }
                     }
                     overlay.onSelect = { [weak self] selection in
                         guard let self, token == self.generation else { return }

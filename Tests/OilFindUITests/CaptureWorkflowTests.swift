@@ -6,6 +6,11 @@ import XCTest
 @testable import OilFindCore
 
 final class CaptureWorkflowTests: XCTestCase {
+    private final class KeyReceiver: NSView {
+        var keys: [UInt16] = []
+        override var acceptsFirstResponder: Bool { true }
+        override func keyDown(with event: NSEvent) { keys.append(event.keyCode) }
+    }
     private final class Keys: ClipboardKeyProviding {
         let value = SymmetricKey(data: Data(repeating: 39, count: 32))
         func key(createIfMissing: Bool) throws -> SymmetricKey { value }
@@ -90,6 +95,84 @@ final class CaptureWorkflowTests: XCTestCase {
     }
     private func key(_ code: UInt16, repeatKey: Bool = false) throws -> NSEvent {
         try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: repeatKey, keyCode: code))
+    }
+    private func presentOverlay(displayCount: Int = 1) throws -> (CaptureOverlayController, [NSWindow]) {
+        _ = NSApplication.shared
+        let height = try XCTUnwrap(NSScreen.screens.first).frame.height
+        let existing = Set(NSApp.windows.map(\.windowNumber))
+        let displays = (0..<displayCount).map { CaptureDisplay(id: UInt32($0 + 1), frame: CaptureGeometry.quartz(CGRect(x: 100 + $0 * 350, y: 200, width: 320, height: 240), mainHeight: height), scale: 1) }
+        let overlay = CaptureOverlayController(catalog: .init(displays: displays, windows: []), windowMode: false)
+        addTeardownBlock { overlay.close() }
+        overlay.present()
+        let windows = NSApp.windows.filter { !existing.contains($0.windowNumber) && $0.isVisible }
+        XCTAssertEqual(windows.count, displayCount)
+        return (overlay, windows)
+    }
+    func testOverlayTakesKeyboardFocusWithoutActivatingApplication() throws {
+        let (_, windows) = try presentOverlay(), window = try XCTUnwrap(windows.first)
+        XCTAssertTrue(window is NSPanel)
+        XCTAssertTrue(window.styleMask.contains(.nonactivatingPanel))
+        XCTAssertTrue(window.firstResponder === window.contentView)
+    }
+    func testOverlayResponderCancelsAfterSpace() throws {
+        let (overlay, windows) = try presentOverlay(), window = try XCTUnwrap(windows.first)
+        var cancellations = 0
+        overlay.onCancel = { cancellations += 1; overlay.close() }
+        let responder = try XCTUnwrap(window.firstResponder)
+        responder.keyDown(with: try key(49))
+        responder.cancelOperation(nil)
+        XCTAssertEqual(cancellations, 1)
+        XCTAssertFalse(window.isVisible)
+    }
+    func testWindowlessEscapeUsesApplicationEventRoute() throws {
+        let (overlay, windows) = try presentOverlay(), window = try XCTUnwrap(windows.first)
+        var cancellations = 0
+        overlay.onCancel = { cancellations += 1; overlay.close() }
+        NSApp.sendEvent(try key(49))
+        NSApp.sendEvent(try key(53))
+        XCTAssertEqual(cancellations, 1)
+        XCTAssertFalse(window.isVisible)
+    }
+    func testMovingFocusBetweenDisplayOverlaysKeepsCaptureActive() throws {
+        let (overlay, windows) = try presentOverlay(displayCount: 2)
+        var cancellations = 0; overlay.onCancel = { cancellations += 1 }
+        for window in windows {
+            window.makeKey()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+            XCTAssertTrue(window.isKeyWindow)
+        }
+        XCTAssertEqual(cancellations, 0)
+        XCTAssertTrue(windows.allSatisfy(\.isVisible))
+    }
+    func testLosingOverlayFocusCancelsInsteadOfLeavingAnUnresponsiveSelection() throws {
+        let (overlay, windows) = try presentOverlay()
+        let other = SearchPanel(snapshot: true); defer { other.close() }
+        var cancellations = 0; overlay.onCancel = { cancellations += 1; overlay.close() }
+        other.makeKeyAndOrderFront(nil)
+        waitFor { cancellations == 1 }
+        XCTAssertTrue(other.isKeyWindow)
+        XCTAssertTrue(windows.allSatisfy { !$0.isVisible })
+    }
+    func testOtherWindowReceivesEscapeAfterCaptureLosesFocus() throws {
+        let (overlay, _) = try presentOverlay()
+        let other = SearchPanel(snapshot: true); defer { other.close() }
+        let receiver = KeyReceiver(); other.contentView = receiver; other.makeFirstResponder(receiver)
+        var cancellations = 0; overlay.onCancel = { cancellations += 1; overlay.close() }
+        other.makeKeyAndOrderFront(nil)
+        waitFor { cancellations == 1 }
+        let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: other.windowNumber, context: nil, characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53))
+        XCTAssertTrue(event.window === other)
+        NSApp.sendEvent(event)
+        XCTAssertEqual(cancellations, 1)
+        XCTAssertEqual(receiver.keys, [53])
+    }
+    func testCaptureMonitorPassesUnhandledKeysToTheResponder() throws {
+        let (_, windows) = try presentOverlay(), window = try XCTUnwrap(windows.first)
+        let receiver = KeyReceiver(); window.contentView = receiver; window.makeFirstResponder(receiver)
+        window.makeKey()
+        let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: "a", charactersIgnoringModifiers: "a", isARepeat: false, keyCode: 0))
+        NSApp.sendEvent(event)
+        XCTAssertEqual(receiver.keys, [0])
     }
     func testSpaceTogglesWindowModeBackToRegionWithoutCapturing() throws {
         _ = NSApplication.shared
