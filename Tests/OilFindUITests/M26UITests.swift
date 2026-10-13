@@ -12,8 +12,13 @@ final class M26UITests: XCTestCase {
         panel.searchController.quickLook.close()
         defer { panel.close() }
         guard QLPreviewPanel.sharedPreviewPanelExists(), let preview = QLPreviewPanel.shared() else { return }
-        preview.orderOut(nil)
-        preview.close()
+        // The functional assertions already exercise QuickLook.close(). For
+        // fixture disposal, bypass the panel's animated orderOut override:
+        // an inactive CI application can leave that transition on screen.
+        let animation = preview.animationBehavior
+        preview.animationBehavior = .none
+        defer { preview.animationBehavior = animation }
+        preview.order(.out, relativeTo: 0)
         // Observe the active shared panel, as QuickLook.isVisible does, rather
         // than assuming a retained native window remains the current singleton.
         let hidden = expectation(for: NSPredicate { _, _ in
@@ -22,7 +27,7 @@ final class M26UITests: XCTestCase {
             // Quick Look can finish an asynchronous presentation after teardown
             // starts. Drain that transition while preserving the owner and the
             // original visibility assertion and three-second deadline.
-            if current.isVisible { current.orderOut(nil); current.close() }
+            if current.isVisible { current.order(.out, relativeTo: 0) }
             return !current.isVisible
         }, evaluatedWith: nil)
         wait(for: [hidden], timeout: 3)
