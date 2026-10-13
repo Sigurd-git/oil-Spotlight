@@ -64,9 +64,9 @@ final class CaptureArchive {
         do {
             try prepare()
             if FileManager.default.fileExists(atPath: index.path) {
-                entries = try PropertyListDecoder().decode([CaptureArchiveEntry].self, from: open(index, limit: 2 * 1024 * 1024, key: key()))
+                entries = try PropertyListDecoder().decode([CaptureArchiveEntry].self, from: open(index, limit: 16 * 1024 * 1024, key: key()))
                 guard entries.count <= 1000, Set(entries.map(\.id)).count == entries.count,
-                      entries.allSatisfy({ $0.bytes > 0 && $0.bytes <= 96 * 1024 * 1024 && CaptureRaster.accepts(width: $0.width, height: $0.height) }) else { throw CaptureFailure.invalidImage }
+                      entries.allSatisfy({ $0.title.utf8.count <= 4096 && $0.bytes > 0 && $0.bytes <= 96 * 1024 * 1024 && CaptureRaster.accepts(width: $0.width, height: $0.height) }) else { throw CaptureFailure.invalidImage }
             } else {
                 guard (try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)).allSatisfy({ $0.pathExtension != "encrypted" }) else { throw CaptureFailure.protectedArchive }
                 entries = []
@@ -106,11 +106,12 @@ final class CaptureArchive {
         if !loaded { try load() }
         let key = try key(), blobID = UUID(), sealed = try seal(data, key: key), sealedThumbnail = try seal(thumbnail, key: key)
         let size = sealed.count + sealedThumbnail.count
-        guard size <= retention.bytes else { throw CaptureFailure.capacity }
+        let entry = CaptureArchiveEntry(id: id, blob: blobID, title: title, updatedAt: date, width: width, height: height, bytes: size)
+        guard size <= 96 * 1024 * 1024, size + (try encode([entry])).count + 28 <= retention.bytes else { throw CaptureFailure.capacity }
         do {
             try write(sealed, to: blob(blobID)); try write(sealedThumbnail, to: blob(blobID, thumbnail: true))
             var next = entries.filter { $0.id != id }
-            next.insert(.init(id: id, blob: blobID, title: title, updatedAt: date, width: width, height: height, bytes: size), at: 0)
+            next.insert(entry, at: 0)
             try commit(pruned(next, retention: retention, now: now), key: key)
         } catch {
             // Never touch old versions when the index transaction fails.
@@ -118,16 +119,24 @@ final class CaptureArchive {
             throw error
         }
     }
-    private func pruned(_ source: [CaptureArchiveEntry], retention: CaptureRetention, now: Date) -> [CaptureArchiveEntry] {
+    private func pruned(_ source: [CaptureArchiveEntry], retention: CaptureRetention, now: Date) throws -> [CaptureArchiveEntry] {
         var bytes = 0
-        return Array(source.sorted { $0.updatedAt > $1.updatedAt }.filter { entry in
+        // The manifest records save order, which remains correct across clock
+        // corrections. Always retain the newly inserted document first.
+        var next = Array(source.filter { entry in
             guard (purpose == "materials" || entry.updatedAt > now.addingTimeInterval(-Double(retention.days) * 86400)), bytes + entry.bytes <= retention.bytes else { return false }
             bytes += entry.bytes; return true
         }.prefix(retention.count))
+        var retainedBytes = next.reduce(0) { $0 + $1.bytes }
+        while !next.isEmpty {
+            if retainedBytes + (try encode(next)).count + 28 <= retention.bytes { break }
+            retainedBytes -= next.removeLast().bytes
+        }
+        return next
     }
     func prune(retention: CaptureRetention, now: Date) throws {
         guard !protected else { throw CaptureFailure.protectedArchive }; if !loaded { try load() }
-        let next = pruned(entries, retention: retention, now: now)
+        let next = try pruned(entries, retention: retention, now: now)
         if next != entries { try commit(next, key: key()) }
     }
     func remove(_ id: UUID?) throws {
