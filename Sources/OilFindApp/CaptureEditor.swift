@@ -263,7 +263,7 @@ final class CaptureEditorController: NSWindowController, NSWindowDelegate {
         model = CaptureEditorModel(document: document, saved: saved)
         model.zoom = min(1, min(950 / document.crop.width, 620 / document.crop.height))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1050, height: 730), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-        window.title = document.title; window.isReleasedWhenClosed = false; window.tabbingMode = .preferred
+        window.title = document.title; window.isReleasedWhenClosed = false; window.isRestorable = false; window.tabbingMode = .preferred
         window.contentView = NSHostingView(rootView: CaptureEditorView(model: model))
         super.init(window: window); window.delegate = self; window.center(); model.loadPreview()
     }
@@ -296,7 +296,7 @@ final class CaptureTextController: NSWindowController, NSWindowDelegate {
     var onClose: (() -> Void)?
     init(text: String) {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 380), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
-        window.title = L10n.text("capture.action.ocr"); window.isReleasedWhenClosed = false
+        window.title = L10n.text("capture.action.ocr"); window.isReleasedWhenClosed = false; window.isRestorable = false
         let scroll = NSScrollView(); scroll.hasVerticalScroller = true; scroll.documentView = textView
         textView.string = text; textView.isRichText = false; textView.font = .systemFont(ofSize: 16); textView.autoresizingMask = [.width]; textView.isVerticallyResizable = true
         textView.minSize = .zero; textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
