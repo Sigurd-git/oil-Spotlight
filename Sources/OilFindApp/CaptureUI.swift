@@ -39,13 +39,18 @@ final class CaptureOverlayController {
             return nil
         }
     }
-    private func position() -> CGPoint { let point = NSEvent.mouseLocation; return CGPoint(x: point.x, y: mainHeight - point.y) }
-    func move() {
-        current = position(); hovered = catalog.windows.first { $0.frame.contains(current!) }; redraw()
+    private func position(for event: NSEvent) -> CGPoint {
+        // Read the position attached to this event, rather than a later global
+        // cursor position when queued or directly delivered events are handled.
+        let point = event.window?.convertPoint(toScreen: event.locationInWindow) ?? NSEvent.mouseLocation
+        return CGPoint(x: point.x, y: mainHeight - point.y)
     }
-    func down() { move(); anchor = current }
-    func up() {
-        move()
+    func move(with event: NSEvent) {
+        current = position(for: event); hovered = catalog.windows.first { $0.frame.contains(current!) }; redraw()
+    }
+    func down(with event: NSEvent) { move(with: event); anchor = current }
+    func up(with event: NSEvent) {
+        move(with: event)
         if windowMode, let hovered { onSelect?(.window(hovered.id)) }
         else if let anchor, let current {
             let rect = CGRect.between(anchor, current).integral
@@ -73,10 +78,10 @@ private final class CaptureOverlayView: NSView {
         trackingAreas.forEach(removeTrackingArea)
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .activeAlways, .inVisibleRect], owner: self)); super.updateTrackingAreas()
     }
-    override func mouseMoved(with event: NSEvent) { controller?.move() }
-    override func mouseDown(with event: NSEvent) { controller?.down() }
-    override func mouseDragged(with event: NSEvent) { controller?.move() }
-    override func mouseUp(with event: NSEvent) { controller?.up() }
+    override func mouseMoved(with event: NSEvent) { controller?.move(with: event) }
+    override func mouseDown(with event: NSEvent) { controller?.down(with: event) }
+    override func mouseDragged(with event: NSEvent) { controller?.move(with: event) }
+    override func mouseUp(with event: NSEvent) { controller?.up(with: event) }
     override func draw(_ dirtyRect: NSRect) {
         NSColor.black.withAlphaComponent(0.22).setFill(); bounds.fill()
         if let selection, let context = NSGraphicsContext.current?.cgContext {

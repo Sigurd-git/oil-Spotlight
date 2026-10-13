@@ -119,6 +119,20 @@ final class CaptureTests: XCTestCase {
         let cocoa = CGRect(x: -500, y: -100, width: 400, height: 200)
         XCTAssertEqual(CaptureGeometry.cocoa(CaptureGeometry.quartz(cocoa, mainHeight: 900), mainHeight: 900), cocoa)
     }
+    func testSelectionUsesDeliveredEventCoordinatesWithoutMovingGlobalCursor() throws {
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: CGRect(x: 100, y: 200, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.orderFront(nil); defer { window.close() }
+        let overlay = CaptureOverlayController(catalog: .init(displays: [], windows: []), windowMode: false)
+        let down = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseDown, location: CGPoint(x: 20, y: 30), modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+        let up = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseUp, location: CGPoint(x: 240, y: 170), modifierFlags: [], timestamp: 1, windowNumber: window.windowNumber, context: nil, eventNumber: 2, clickCount: 1, pressure: 0))
+        XCTAssertTrue(down.window === window); XCTAssertTrue(up.window === window)
+        var selected: CGRect?
+        overlay.onSelect = { if case .region(let rect) = $0 { selected = rect } }
+        overlay.down(with: down); overlay.up(with: up)
+        let mainHeight = try XCTUnwrap(NSScreen.screens.first).frame.height
+        XCTAssertEqual(selected, CaptureGeometry.quartz(CGRect(x: 120, y: 230, width: 220, height: 140), mainHeight: mainHeight))
+    }
     func testScrollNoMissingOrDuplicatedRows() throws {
         let stitcher = CaptureScrollStitcher()
         XCTAssertEqual(stitcher.appendStable(pixels(48, 90)), .appended(90))
