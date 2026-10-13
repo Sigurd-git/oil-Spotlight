@@ -8,17 +8,21 @@ final class CaptureOverlayController {
     #if DEBUG
     static func snapshotView() -> NSView {
         let view = CaptureOverlayView(frame: CGRect(x: 0, y: 0, width: 900, height: 560))
-        view.selection = CGRect(x: 160, y: 100, width: 570, height: 340); return view
+        view.selection = CGRect(x: 160, y: 100, width: 570, height: 340)
+        view.label = L10n.text("capture.overlay.confirmHint"); view.showControls(true); return view
     }
     #endif
     private var windows: [NSWindow] = [], views: [CaptureOverlayView] = []
     private let catalog: CaptureCatalog, mainHeight: CGFloat
     private var windowMode: Bool, anchor: CGPoint?, current: CGPoint?
     private var hovered: CaptureWindow?
+    private(set) var pendingSelection: CaptureSelection?
+    private let requiresConfirmation: Bool
     private var keyMonitor: Any?
     var onSelect: ((CaptureSelection) -> Void)?, onCancel: (() -> Void)?
-    init(catalog: CaptureCatalog, windowMode: Bool) {
+    init(catalog: CaptureCatalog, windowMode: Bool, requiresConfirmation: Bool = true) {
         self.catalog = catalog; self.windowMode = windowMode
+        self.requiresConfirmation = requiresConfirmation
         mainHeight = NSScreen.screens.first?.frame.height ?? CGDisplayBounds(CGMainDisplayID()).height
     }
     func present() {
@@ -35,9 +39,12 @@ final class CaptureOverlayController {
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
             if event.keyCode == 53 { self.onCancel?(); return nil }
-            if event.keyCode == 49 { self.windowMode.toggle(); self.anchor = nil; self.redraw(); return nil }
+            if [36,76].contains(event.keyCode) { self.confirmSelection(); return nil }
+            if event.keyCode == 15 { self.reselect(); return nil }
+            if event.keyCode == 49 { self.windowMode.toggle(); self.reselect(); return nil }
             return nil
         }
+        redraw()
     }
     private func position(for event: NSEvent) -> CGPoint {
         // Read the position attached to this event, rather than a later global
@@ -46,34 +53,69 @@ final class CaptureOverlayController {
         return CGPoint(x: point.x, y: mainHeight - point.y)
     }
     func move(with event: NSEvent) {
+        guard pendingSelection == nil else { return }
         current = position(for: event); hovered = catalog.windows.first { $0.frame.contains(current!) }; redraw()
     }
-    func down(with event: NSEvent) { move(with: event); anchor = current }
+    func down(with event: NSEvent) { reselect(); move(with: event); anchor = current }
     func up(with event: NSEvent) {
         move(with: event)
-        if windowMode, let hovered { onSelect?(.window(hovered.id)) }
+        if windowMode, let hovered { select(.window(hovered.id)) }
         else if let anchor, let current {
             let rect = CGRect.between(anchor, current).integral
-            if rect.width >= 2 && rect.height >= 2 { onSelect?(.region(rect)) }
+            if rect.width >= 2 && rect.height >= 2 { select(.region(rect)) }
         }
     }
-    var selectedRect: CGRect? { windowMode ? hovered?.frame : anchor.flatMap { start in current.map { CGRect.between(start, $0) } } }
+    func select(_ selection: CaptureSelection) {
+        pendingSelection = selection
+        if requiresConfirmation { redraw() } else { confirmSelection() }
+    }
+    func confirmSelection() {
+        guard let selection = pendingSelection else { return }
+        pendingSelection = nil; onSelect?(selection)
+    }
+    func reselect() { pendingSelection = nil; anchor = nil; current = nil; hovered = nil; redraw() }
+    var selectedRect: CGRect? {
+        if let pendingSelection {
+            switch pendingSelection {
+            case .region(let rect): return rect
+            case .window(let id): return catalog.windows.first { $0.id == id }?.frame
+            }
+        }
+        return windowMode ? hovered?.frame : anchor.flatMap { start in current.map { CGRect.between(start, $0) } }
+    }
     private func redraw() {
         for view in views {
             if let rect = selectedRect, let window = view.window {
                 let cocoa = CaptureGeometry.cocoa(rect, mainHeight: mainHeight)
                 view.selection = view.convert(window.convertFromScreen(cocoa), from: nil)
             } else { view.selection = nil }
-            view.label = windowMode ? [hovered?.owner, hovered?.title].compactMap { $0 }.joined(separator: " · ") : L10n.text("capture.overlay.hint")
+            view.label = pendingSelection != nil ? L10n.text("capture.overlay.confirmHint") : L10n.text(requiresConfirmation ? "capture.overlay.hint" : "capture.overlay.copyHint")
+            let mouse = current.map { CGPoint(x: $0.x, y: mainHeight - $0.y) }
+            view.showControls(pendingSelection != nil && mouse.map { view.window?.frame.contains($0) == true } == true)
             view.needsDisplay = true
         }
     }
-    func close() { if let keyMonitor { NSEvent.removeMonitor(keyMonitor); self.keyMonitor = nil }; windows.forEach { $0.close() }; windows = []; views = [] }
+    func close() { if let keyMonitor { NSEvent.removeMonitor(keyMonitor); self.keyMonitor = nil }; pendingSelection = nil; windows.forEach { $0.close() }; windows = []; views = [] }
     deinit { close() }
 }
 private final class CaptureOverlayView: NSView {
     weak var controller: CaptureOverlayController?
     var selection: CGRect?, label = L10n.text("capture.overlay.hint")
+    private var controls: CaptureSelectionControls?
+    func showControls(_ visible: Bool) {
+        guard visible else { controls?.isHidden = true; return }
+        if controls == nil {
+            let controls = CaptureSelectionControls()
+            controls.onConfirm = { [weak self] in self?.controller?.confirmSelection() }
+            controls.onReselect = { [weak self] in self?.controller?.reselect() }
+            controls.onCancel = { [weak self] in self?.controller?.onCancel?() }
+            addSubview(controls); self.controls = controls
+        }
+        let width = min(360, max(1, bounds.width - 24)), rect = selection ?? bounds
+        controls?.frame = CGRect(x: min(max(12, rect.minX), bounds.maxX - width - 12),
+                                  y: min(max(58, rect.minY - 52), max(58, bounds.maxY - 56)), width: width, height: 44)
+        controls?.isHidden = false
+    }
     override func updateTrackingAreas() {
         trackingAreas.forEach(removeTrackingArea)
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .activeAlways, .inVisibleRect], owner: self)); super.updateTrackingAreas()
@@ -91,6 +133,25 @@ private final class CaptureOverlayView: NSView {
         let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 16, weight: .medium), .foregroundColor: NSColor.white, .backgroundColor: NSColor.black.withAlphaComponent(0.7)]
         (label as NSString).draw(at: CGPoint(x: 24, y: 24), withAttributes: attributes)
     }
+}
+
+private final class CaptureSelectionControls: NSVisualEffectView {
+    var onConfirm: (() -> Void)?, onReselect: (() -> Void)?, onCancel: (() -> Void)?
+    init() {
+        super.init(frame: .zero)
+        material = .hudWindow; state = .active; appearance = NSAppearance(named: .vibrantDark)
+        wantsLayer = true; layer?.cornerRadius = 8
+        let confirm = NSButton(title: L10n.text("capture.overlay.confirm"), target: self, action: #selector(confirmSelection))
+        let reselect = NSButton(title: L10n.text("capture.editor.reselect"), target: self, action: #selector(reselectRegion))
+        let cancel = NSButton(title: L10n.text("action.cancel"), target: self, action: #selector(cancelSelection))
+        let stack = NSStackView(views: [reselect, cancel, confirm]); stack.orientation = .horizontal; stack.distribution = .fillEqually
+        stack.translatesAutoresizingMaskIntoConstraints = false; addSubview(stack)
+        NSLayoutConstraint.activate([stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8), stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8), stack.centerYAnchor.constraint(equalTo: centerYAnchor)])
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    @objc private func confirmSelection() { onConfirm?() }
+    @objc private func reselectRegion() { onReselect?() }
+    @objc private func cancelSelection() { onCancel?() }
 }
 
 final class CaptureScrollModel: ObservableObject {
