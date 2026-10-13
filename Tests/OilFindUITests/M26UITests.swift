@@ -8,10 +8,12 @@ final class M26UITests: XCTestCase {
     private func resetPreviewPanel() {
         guard QLPreviewPanel.sharedPreviewPanelExists(), let preview = QLPreviewPanel.shared() else { return }
         // Keep the native singleton alive; closing it can recreate a panel during later callbacks.
-        preview.dataSource = nil; preview.delegate = nil
         preview.orderOut(nil)
         let hidden = expectation(for: NSPredicate { _, _ in !preview.isVisible }, evaluatedWith: preview)
         wait(for: [hidden], timeout: 3)
+        // Clearing live preview content can start another native transition.
+        // Release its controller only after the previous hide has finished.
+        preview.dataSource = nil; preview.delegate = nil
     }
     private func fixture() throws -> (URL, IndexStore, IndexConfig) {
         _ = NSApplication.shared
