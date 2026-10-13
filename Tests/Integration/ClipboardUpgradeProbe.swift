@@ -88,6 +88,14 @@ private func admin(_ arguments: [String]) throws {
 }
 #else
 import AppKit
+import ImageIO
+
+private func unwrapImageContext() throws -> CGContext {
+    guard let context = CGContext(data: nil, width: 32, height: 24, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+    else { throw ProbeFailure(check: "synthetic-image-context") }
+    return context
+}
 
 // Presentation-only shims; storage, AES, Keychain, load, copy and flush are production code.
 enum L10n {
@@ -96,6 +104,7 @@ enum L10n {
 enum Presentation {
     static func countText(_ count: Int) -> String { String(count) }
     static func abbreviate(path: String, home: String) -> String { path }
+    static func sizeText(_ bytes: UInt64) -> String { String(bytes) }
 }
 private final class SyntheticPasteboard: ClipboardPasteboardReading {
     private(set) var changeCount = 0
@@ -118,6 +127,7 @@ private struct Manifest: Codable { let entries: [ClipboardEntry] }
 private let legacyID = UUID(uuidString: "E15A5AD0-7777-4444-AAAA-000000000001")!
 private let textID = UUID(uuidString: "E15A5AD0-7777-4444-AAAA-000000000002")!
 private let fileID = UUID(uuidString: "E15A5AD0-7777-4444-AAAA-000000000003")!
+private let imageID = UUID(uuidString: "E15A5AD0-7777-4444-AAAA-000000000004")!
 private let legacyText = "synthetic-legacy-body-clipboard-upgrade-\u{1F680}"
 private let newText = "synthetic-new-body-clipboard-upgrade-\u{4E2D}\u{6587}"
 private let sourceID = "test.oilfind.clipboard-upgrade"
@@ -144,8 +154,11 @@ private func inspect(_ url: URL, entries: [ClipboardEntry]) throws {
     let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
     try require((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600, "archive-mode-0600")
     for entry in entries {
-        try require(bytes.range(of: Data(entry.text.utf8)) == nil, "ciphertext-no-UTF8-body")
-        try require(bytes.range(of: entry.text.data(using: .utf16LittleEndian)!) == nil, "ciphertext-no-UTF16-body")
+        if !entry.text.isEmpty {
+            try require(bytes.range(of: Data(entry.text.utf8)) == nil, "ciphertext-no-UTF8-body")
+            try require(bytes.range(of: entry.text.data(using: .utf16LittleEndian)!) == nil, "ciphertext-no-UTF16-body")
+        }
+        if let image = entry.image { try require(bytes.range(of: image.data) == nil, "ciphertext-no-image-body") }
         for path in entry.filePaths ?? [] {
             try require(bytes.range(of: Data(path.utf8)) == nil, "ciphertext-no-file-path")
         }
@@ -202,7 +215,22 @@ private func probe(_ arguments: [String]) throws {
         result.copy(files, isCurrent: { true }) { filesOutcome = $0 }
         try waitFor { filesOutcome != nil }
         try require(filesOutcome == .copied && board.content == files.content, "files-copy-asynchronous")
-        try require(result.entries.count == 3 && result.error == nil, "v2-memory-entries")
+        let context = try unwrapImageContext()
+        context.setFillColor(CGColor(red: 0.2, green: 0.5, blue: 0.8, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: 32, height: 24))
+        let bytes = NSMutableData()
+        guard let frame = context.makeImage(),
+              let destination = CGImageDestinationCreateWithData(bytes, "public.png" as CFString, 1, nil)
+        else { throw ProbeFailure(check: "synthetic-image-encode") }
+        CGImageDestinationAddImage(destination, frame, nil)
+        try require(CGImageDestinationFinalize(destination), "synthetic-image-finalize")
+        guard let image = ClipboardImage(data: bytes as Data) else { throw ProbeFailure(check: "synthetic-image-decode") }
+        let picture = ClipboardEntry(id: imageID, content: .image(image), sourceBundleID: sourceID, sourceName: "Synthetic")
+        var imageOutcome: ClipboardCopyOutcome?
+        result.copy(picture) { imageOutcome = $0 }
+        try waitFor { imageOutcome != nil }
+        try require(imageOutcome == .copied && board.content == picture.content, "image-copy-asynchronous")
+        try require(result.entries.count == 4 && result.error == nil, "v2-memory-entries")
         // The one-hour debounce means only stop() may persist these edits.
         try require(try Data(contentsOf: archiveURL) == original, "archive-unchanged-before-stop")
         let expected = result.entries
@@ -211,17 +239,17 @@ private func probe(_ arguments: [String]) throws {
         try require(result.error == nil, "stop-flush-success")
         try require(try Data(contentsOf: archiveURL) != original, "stop-flush-wrote-disk")
         try inspect(archiveURL, entries: expected)
-        print("PASS upgrade stop-flush count=3")
+        print("PASS upgrade stop-flush count=4 includes=image")
         #endif
     } else if command == "restore" {
         let expected = try PropertyListDecoder().decode(Manifest.self, from: Data(contentsOf: manifestURL)).entries
         let result = try history(root, storage: storage, pasteboard: board)
         try waitFor { !result.entries.isEmpty || result.error != nil }
         try require(result.error == nil && result.entries == expected, "cross-process-all-IDs-content-metadata")
-        try require(Set(result.entries.map(\.id)) == Set([legacyID, textID, fileID]), "restore-three-IDs")
+        try require(Set(result.entries.map(\.id)) == Set([legacyID, textID, fileID, imageID]), "restore-four-IDs")
         result.stop()
         try inspect(archiveURL, entries: expected)
-        print("PASS restore independent-process count=3")
+        print("PASS restore independent-process count=4 includes=image")
     } else if command == "missing" || command == "corrupt" || command == "denied" {
         let original = try Data(contentsOf: archiveURL)
         let failureKeys = command == "missing"

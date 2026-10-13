@@ -69,7 +69,7 @@ enum LauncherRow {
         case .file: return "doc"
         case .app: return "app"
         case .setting(let setting): return setting.symbol
-        case .clipboard(let entry): return entry.filePaths == nil ? "doc.on.clipboard" : "doc.on.doc"
+        case .clipboard(let entry): return entry.image != nil ? "photo" : entry.filePaths == nil ? "doc.on.clipboard" : "doc.on.doc"
         case .answer: return "equal.square"
         case .currency: return "banknote"
         case .url: return "link"

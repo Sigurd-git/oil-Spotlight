@@ -122,6 +122,12 @@ final class ResultCell: NSTableCellView {
                 if self?.configuration == token { self?.icon.image = image }
             }
         }
+        if case .clipboard(let entry) = row, let image = entry.image {
+            icons.clipboardImage(image) { [weak self] thumbnail in
+                guard let self, self.configuration == token else { return }
+                self.icon.image = thumbnail; self.displayingThumbnail = true; self.updateThumbnailStyle()
+            }
+        }
     }
 }
 

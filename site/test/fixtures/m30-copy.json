@@ -2,7 +2,7 @@
   "metadata": {
     "/en": {
       "title": "Oil Find: files, apps and clipboard in one search panel",
-      "description": "⌘Space searches files, apps, settings & clipboard. Optional, locally encrypted clipboard history; web opens on submit. Fork builds disable upstream updates."
+      "description": "⌘Space searches files, apps, settings & clipboard. Opt-in encrypted text and image history; web opens on submit. Fork disables upstream updates."
     },
     "/en/pro": {
       "title": "Oil Find Pro: search inside images and documents on Mac",

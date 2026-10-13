@@ -6,11 +6,11 @@ import Security
 import UniformTypeIdentifiers
 
 enum ClipboardContent: Equatable {
-    case text(String), files([String])
+    case text(String), files([String]), image(ClipboardImage)
 }
 
 private enum ClipboardContentKey: Hashable {
-    case text(Data), files([Data])
+    case text(Data), files([Data]), image(Data)
 }
 
 struct ClipboardEntry: Identifiable, Codable, Equatable {
@@ -19,12 +19,14 @@ struct ClipboardEntry: Identifiable, Codable, Equatable {
     let copiedAt: Date
     let sourceBundleID: String?
     let sourceName: String?
-    // Optional for decoding text-only archives written before file capture existed.
+    // Optional payloads preserve compatibility with older text/file archives.
     let filePaths: [String]?
+    let image: ClipboardImage?
 
-    var content: ClipboardContent { filePaths.map(ClipboardContent.files) ?? .text(text) }
+    var content: ClipboardContent { image.map(ClipboardContent.image) ?? filePaths.map(ClipboardContent.files) ?? .text(text) }
     var fileURLs: [URL] { (filePaths ?? []).map { URL(fileURLWithPath: $0) } }
     fileprivate var contentKey: ClipboardContentKey {
+        if let image { return .image(image.fingerprint) }
         if let filePaths { return .files(filePaths.map { Data($0.utf8) }.sorted { $0.lexicographicallyPrecedes($1) }) }
         return .text(Data(text.utf8))
     }
@@ -32,15 +34,17 @@ struct ClipboardEntry: Identifiable, Codable, Equatable {
         let pathBytes: Int = filePaths?.reduce(0) { $0 + $1.utf8.count + 32 } ?? 0
         let bundleIDBytes: Int = sourceBundleID?.utf8.count ?? 0
         let sourceNameBytes: Int = sourceName?.utf8.count ?? 0
-        return text.utf8.count + pathBytes + bundleIDBytes + sourceNameBytes + 256
+        return text.utf8.count + pathBytes + (image?.data.count ?? 0) + bundleIDBytes + sourceNameBytes + 256
     }
     var displayTitle: String {
+        if let image { return L10n.text("clipboard.image", image.summary) }
         guard let filePaths else { return text.replacingOccurrences(of: "\n", with: " ⏎ ") }
         let names = filePaths.prefix(3).map { ($0 as NSString).lastPathComponent }
         if filePaths.count == 1 { return names.first ?? "" }
         return L10n.text("clipboard.files", Presentation.countText(filePaths.count)) + " · " + names.joined(separator: ", ")
     }
     var locationSummary: String? {
+        if let image { return Presentation.sizeText(UInt64(image.data.count)) }
         guard let filePaths, let first = filePaths.first else { return nil }
         let parent = (first as NSString).deletingLastPathComponent
         if filePaths.allSatisfy({ ($0 as NSString).deletingLastPathComponent == parent }) {
@@ -53,6 +57,9 @@ struct ClipboardEntry: Identifiable, Codable, Equatable {
     }
     func matches(words: [String]) -> Bool {
         var searchableText: [String] = [text]
+        if let image {
+            searchableText += [image.summary, image.typeIdentifier, "image picture photo screenshot 图片 照片 截图"]
+        }
         if let sourceName { searchableText.append(sourceName) }
         if let sourceBundleID { searchableText.append(sourceBundleID) }
         return words.allSatisfy { value in
@@ -68,6 +75,7 @@ struct ClipboardEntry: Identifiable, Codable, Equatable {
         self.sourceBundleID = sourceBundleID
         self.sourceName = sourceName
         self.filePaths = nil
+        self.image = nil
     }
 
     init(id: UUID = UUID(), content: ClipboardContent, copiedAt: Date = Date(),
@@ -75,15 +83,16 @@ struct ClipboardEntry: Identifiable, Codable, Equatable {
         self.id = id; self.copiedAt = copiedAt
         self.sourceBundleID = sourceBundleID; self.sourceName = sourceName
         switch content {
-        case .text(let text): self.text = text; filePaths = nil
-        case .files(let paths): text = paths.joined(separator: "\n"); filePaths = paths
+        case .text(let text): self.text = text; filePaths = nil; image = nil
+        case .files(let paths): text = paths.joined(separator: "\n"); filePaths = paths; image = nil
+        case .image(let image): text = ""; filePaths = nil; self.image = image
         }
     }
 }
 
 enum ClipboardFailure: String, Error, LocalizedError {
     case keyUnavailable, keychainUnavailable, corruptArchive, archiveTooLarge
-    case preservedArchive, storageUnavailable, copyFailed, invalidText, missingFiles, validationTimedOut, validationBusy, snapshotOnly
+    case preservedArchive, storageUnavailable, copyFailed, invalidText, invalidImage, missingFiles, validationTimedOut, validationBusy, snapshotOnly
 
     var errorDescription: String? {
         L10n.text("clipboard.failure.\(rawValue)")
@@ -102,8 +111,10 @@ struct ClipboardCopyToken: Equatable {
 private final class ClipboardValidationPool {
     private let lock = NSLock()
     private var active = 0
-    private let limit = 4
+    private let limit: Int
     private let queue = DispatchQueue(label: "OilFind.clipboard-file-validation", qos: .userInitiated, attributes: .concurrent)
+
+    init(limit: Int = 4) { self.limit = limit }
 
     func submit(_ work: @escaping () -> Void) -> Bool {
         lock.lock()
@@ -125,6 +136,7 @@ private final class ClipboardCopyRequest {
     private var cancelled = false
     var cancelDeadline: (() -> Void)?
     let completion: (ClipboardCopyOutcome) -> Void
+    var compatiblePNG: Data?
     init(completion: @escaping (ClipboardCopyOutcome) -> Void) { self.completion = completion }
     var isCancelled: Bool { lock.lock(); defer { lock.unlock() }; return cancelled }
     func cancel() { lock.lock(); cancelled = true; lock.unlock() }
@@ -168,10 +180,15 @@ struct ClipboardHistoryStore {
     }
 
     static func accepts(_ entry: ClipboardEntry) -> Bool {
-        guard !entry.text.isEmpty && entry.text.utf8.count <= maximumTextBytes
-            && (entry.sourceBundleID?.utf8.count ?? 0) <= 1024
+        guard (entry.sourceBundleID?.utf8.count ?? 0) <= 1024
             && (entry.sourceName?.utf8.count ?? 0) <= 1024
             && entry.copiedAt.timeIntervalSinceReferenceDate.isFinite else { return false }
+        if let image = entry.image {
+            return entry.text.isEmpty && entry.filePaths == nil && !image.data.isEmpty
+                && image.data.count <= ClipboardImage.maximumBytes
+                && image.width > 0 && image.height > 0 && image.width <= ClipboardImage.maximumPixels / image.height
+        }
+        guard !entry.text.isEmpty && entry.text.utf8.count <= maximumTextBytes else { return false }
         guard let paths = entry.filePaths else { return true }
         return !paths.isEmpty && paths.count <= maximumFileCount
             && paths.allSatisfy { $0.hasPrefix("/") && !$0.utf8.contains(0) }
@@ -336,7 +353,7 @@ final class ClipboardEncryptedStorage: ClipboardHistoryPersisting {
                 let plaintext = try AES.GCM.open(sealed, using: key, authenticating: authentication)
                 archive = try PropertyListDecoder().decode(Archive.self, from: plaintext)
             } catch { throw ClipboardFailure.corruptArchive }
-            guard archive.version == 1, archive.entries.count <= 10_000,
+            guard [1, 2].contains(archive.version), archive.entries.count <= 10_000,
                   archive.entries.allSatisfy(ClipboardHistoryStore.accepts) else { throw ClipboardFailure.corruptArchive }
             let size = archive.entries.reduce(0) { $0 + $1.storageBytes }
             guard size <= ClipboardHistoryStore.maximumTotalBytes else { throw ClipboardFailure.archiveTooLarge }
@@ -358,7 +375,7 @@ final class ClipboardEncryptedStorage: ClipboardHistoryPersisting {
         let key = try encryptionKey ?? keys.key(createIfMissing: true)
         let encoder = PropertyListEncoder()
         encoder.outputFormat = .binary
-        let plaintext = try encoder.encode(Archive(version: 1, entries: entries))
+        let plaintext = try encoder.encode(Archive(version: entries.contains { $0.image != nil } ? 2 : 1, entries: entries))
         guard let data = try AES.GCM.seal(plaintext, using: key, authenticating: authentication).combined
         else { throw ClipboardFailure.storageUnavailable }
         try io.writeAtomically(data)
@@ -372,13 +389,17 @@ protocol ClipboardPasteboardReading {
     func readText() -> String?
     func writeText(_ text: String) -> Bool
     func readContent() -> ClipboardContent?
+    func readContent(completion: @escaping (ClipboardContent?) -> Void)
     func writeContent(_ content: ClipboardContent) -> Bool
+    func writeImage(_ image: ClipboardImage, compatiblePNG: Data?) -> Bool
     func requestAccess()
 }
 
 extension ClipboardPasteboardReading {
     func requestAccess() {}
     func readContent() -> ClipboardContent? { readText().map(ClipboardContent.text) }
+    func readContent(completion: @escaping (ClipboardContent?) -> Void) { completion(readContent()) }
+    func writeImage(_ image: ClipboardImage, compatiblePNG: Data?) -> Bool { writeContent(.image(image)) }
     func writeContent(_ content: ClipboardContent) -> Bool {
         guard case .text(let text) = content else { return false }
         return writeText(text)
@@ -388,6 +409,16 @@ extension ClipboardPasteboardReading {
 final class ClipboardSystemPasteboard: ClipboardPasteboardReading {
     static let ownCopyType = NSPasteboard.PasteboardType("com.oiloil.find.clipboard-history.copy")
     private let suppliedPasteboard: NSPasteboard?
+    private let imageReadQueue = DispatchQueue(label: "OilFind.clipboard-image-read", qos: .userInitiated)
+    private var decodingImage = false
+    private var pendingImage: (capture: ImageCapture, completion: (ClipboardContent?) -> Void)?
+    private struct ImageCapture {
+        let data: Data
+        let item: NSPasteboardItem
+        let remainingTypes: [NSPasteboard.PasteboardType]
+        let changeCount: Int
+    }
+    private enum Capture { case content(ClipboardContent), image(ImageCapture) }
     // Resolve the general pasteboard lazily, only after opt-in or explicit Copy.
     private var pasteboard: NSPasteboard { suppliedPasteboard ?? .general }
 
@@ -415,6 +446,68 @@ final class ClipboardSystemPasteboard: ClipboardPasteboardReading {
     }
 
     func readContent() -> ClipboardContent? {
+        guard let capture = readCapture() else { return nil }
+        switch capture {
+        case .content(let content): return content
+        case .image(let captured):
+            var candidate: ImageCapture? = captured
+            while let image = candidate {
+                if let decoded = ClipboardImage(data: image.data) { return .image(decoded) }
+                candidate = nextImage(image)
+            }
+            return nil
+        }
+    }
+
+    func readContent(completion: @escaping (ClipboardContent?) -> Void) {
+        guard let capture = readCapture() else { completion(nil); return }
+        switch capture {
+        case .content(let content): completion(content)
+        case .image(let image):
+            // Pasteboard access stays on the caller's main thread; decoding does not.
+            if decodingImage {
+                pendingImage?.completion(nil)
+                pendingImage = (image, completion)
+            } else { decodeImage(image, completion: completion) }
+        }
+    }
+
+    // At most one active decode and the newest pending image are retained.
+    private func decodeImage(_ image: ImageCapture, completion: @escaping (ClipboardContent?) -> Void) {
+        decodingImage = true
+        imageReadQueue.async { [weak self] in
+            let content = ClipboardImage(data: image.data).map(ClipboardContent.image)
+            DispatchQueue.main.async {
+                guard let self else { completion(nil); return }
+                // Read another representation only after a failed decode, and
+                // only while this is still the same clipboard revision.
+                if content == nil, let next = self.nextImage(image) {
+                    self.decodeImage(next, completion: completion); return
+                }
+                completion(content)
+                if let next = self.pendingImage {
+                    self.pendingImage = nil
+                    self.decodeImage(next.capture, completion: next.completion)
+                } else { self.decodingImage = false }
+            }
+        }
+    }
+
+    private func nextImage(_ image: ImageCapture) -> ImageCapture? {
+        guard canReadWithoutPrompt, pasteboard.changeCount == image.changeCount else { return nil }
+        return captureImage(item: image.item, types: image.remainingTypes, changeCount: image.changeCount)
+    }
+
+    private func captureImage(item: NSPasteboardItem, types: [NSPasteboard.PasteboardType], changeCount: Int) -> ImageCapture? {
+        for (index, type) in types.enumerated() {
+            if let data = item.data(forType: type), !data.isEmpty, data.count <= ClipboardImage.maximumBytes {
+                return ImageCapture(data: data, item: item, remainingTypes: Array(types.dropFirst(index + 1)), changeCount: changeCount)
+            }
+        }
+        return nil
+    }
+
+    private func readCapture() -> Capture? {
         guard canReadWithoutPrompt, let items = pasteboard.pasteboardItems, !items.isEmpty,
               items.count <= ClipboardHistoryStore.maximumFileCount else { return nil }
         let forbidden = Set([
@@ -439,7 +532,7 @@ final class ClipboardSystemPasteboard: ClipboardPasteboardReading {
                 paths.append(path)
             }
             let entry = ClipboardEntry(content: .files(paths))
-            return ClipboardHistoryStore.accepts(entry) ? entry.content : nil
+            return ClipboardHistoryStore.accepts(entry) ? .content(entry.content) : nil
         }
         let filenames = NSPasteboard.PasteboardType("NSFilenamesPboardType")
         if items.contains(where: { $0.types.contains(filenames) }) {
@@ -447,10 +540,19 @@ final class ClipboardSystemPasteboard: ClipboardPasteboardReading {
                   let paths = (try? PropertyListSerialization.propertyList(from: data, format: nil)) as? [String],
                   paths.count <= ClipboardHistoryStore.maximumFileCount else { return nil }
             let entry = ClipboardEntry(content: .files(paths))
-            return ClipboardHistoryStore.accepts(entry) ? entry.content : nil
+            return ClipboardHistoryStore.accepts(entry) ? .content(entry.content) : nil
         }
         guard items.count == 1, let item = items.first else { return nil }
         let types = item.types
+        let imageTypes = types.filter { UTType($0.rawValue)?.conforms(to: .image) == true }
+        if !imageTypes.isEmpty {
+            // Keep original JPEG/GIF/etc. before generic PNG/TIFF representations.
+            // Screenshots advertise PNG/TIFF: prefer their compact PNG pixels.
+            // Never collect a URL instead of a malformed or oversized image.
+            let preferred = imageTypes.filter { $0 != .png && $0 != .tiff }
+                + imageTypes.filter { $0 == .png } + imageTypes.filter { $0 == .tiff }
+            return captureImage(item: item, types: Array(preferred.prefix(8)), changeCount: pasteboard.changeCount).map(Capture.image)
+        }
         guard !types.contains(where: { type in
             if forbidden.contains(type.rawValue) { return true }
             guard let uti = UTType(type.rawValue) else { return false }
@@ -458,7 +560,7 @@ final class ClipboardSystemPasteboard: ClipboardPasteboardReading {
         }), types.contains(.string), let data = item.data(forType: .string),
               !data.isEmpty, data.count <= ClipboardHistoryStore.maximumTextBytes,
               let text = String(data: data, encoding: .utf8) else { return nil }
-        return .text(text)
+        return .content(.text(text))
     }
 
     func writeText(_ text: String) -> Bool {
@@ -471,6 +573,9 @@ final class ClipboardSystemPasteboard: ClipboardPasteboardReading {
 
     func writeContent(_ content: ClipboardContent) -> Bool {
         if case .text(let text) = content { return writeText(text) }
+        if case .image(let image) = content {
+            return writeImage(image, compatiblePNG: nil)
+        }
         guard case .files(let paths) = content,
               ClipboardHistoryStore.accepts(ClipboardEntry(content: content)) else { return false }
         var items: [NSPasteboardItem] = []
@@ -482,6 +587,17 @@ final class ClipboardSystemPasteboard: ClipboardPasteboardReading {
         }
         pasteboard.clearContents()
         return pasteboard.writeObjects(items)
+    }
+
+    func writeImage(_ image: ClipboardImage, compatiblePNG: Data?) -> Bool {
+        let item = NSPasteboardItem()
+        guard item.setData(image.data, forType: NSPasteboard.PasteboardType(image.typeIdentifier)),
+              item.setData(Data([1]), forType: Self.ownCopyType) else { return false }
+        if let compatiblePNG, image.typeIdentifier != UTType.png.identifier {
+            guard item.setData(compatiblePNG, forType: .png) else { return false }
+        }
+        pasteboard.clearContents()
+        return pasteboard.writeObjects([item])
     }
 }
 
@@ -543,6 +659,8 @@ final class ClipboardHistory: ObservableObject {
     // a main-queue callback, which would deadlock during application shutdown.
     private var loadResultOnQueue: (generation: Int, revision: Int, result: Result<[ClipboardEntry], Error>)?
     private let fileValidation = ClipboardValidationPool()
+    private let imagePreparation = ClipboardValidationPool(limit: 1)
+    private var captureGeneration = 0
     private let fileExists: (String) -> Bool
     private let validationTimeout: TimeInterval
     private let scheduleValidationDeadline: ValidationDeadline
@@ -602,6 +720,7 @@ final class ClipboardHistory: ObservableObject {
 
     func stop() {
         cancelCopy()
+        captureGeneration += 1
         started = false
         timer?.invalidate(); timer = nil
         lastChangeCount = nil
@@ -682,7 +801,8 @@ final class ClipboardHistory: ObservableObject {
         guard !snapshot else { report(ClipboardFailure.snapshotOnly); completion(.failed); return }
         guard ClipboardHistoryStore.accepts(entry) else { report(ClipboardFailure.invalidText); completion(.failed); return }
         guard isCurrent() else { completion(.cancelled); return }
-        guard let paths = entry.filePaths else { completion(writeCopy(entry) ? .copied : .failed); return }
+        guard entry.filePaths != nil || entry.image != nil else { completion(writeCopy(entry) ? .copied : .failed); return }
+        let initialClipboardRevision = pasteboard.changeCount
         let request = ClipboardCopyRequest(completion: completion)
         copyRequest = request
         let finish: (ClipboardFailure?) -> Void = { [weak self, weak request] failure in
@@ -690,16 +810,23 @@ final class ClipboardHistory: ObservableObject {
             self.copyRequest = nil
             request.cancel(); request.cancelDeadline?(); request.cancelDeadline = nil
             // Recheck the caller's query, selection and panel before any write.
-            guard isCurrent() else { request.completion(.cancelled); return }
+            guard isCurrent(), self.pasteboard.changeCount == initialClipboardRevision else { request.completion(.cancelled); return }
             if let failure { self.report(failure); request.completion(.failed) }
-            else { request.completion(self.writeCopy(entry) ? .copied : .failed) }
+            else { request.completion(self.writeCopy(entry, compatiblePNG: request.compatiblePNG) ? .copied : .failed) }
         }
         request.cancelDeadline = scheduleValidationDeadline(validationTimeout) { finish(.validationTimedOut) }
         guard copyRequest === request else { request.cancelDeadline?(); request.cancelDeadline = nil; return }
         let exists = fileExists
-        guard fileValidation.submit({
+        let pool = entry.image == nil ? fileValidation : imagePreparation
+        guard pool.submit({
             guard !request.isCancelled else { return }
-            let valid = paths.allSatisfy { !request.isCancelled && exists($0) }
+            if let image = entry.image {
+                do { request.compatiblePNG = try image.compatiblePNG() }
+                catch { DispatchQueue.main.async { finish(.invalidImage) }; return }
+                guard !request.isCancelled else { return }
+                DispatchQueue.main.async { finish(nil) }; return
+            }
+            let valid = (entry.filePaths ?? []).allSatisfy { !request.isCancelled && exists($0) }
             guard !request.isCancelled else { return }
             DispatchQueue.main.async { finish(valid ? nil : .missingFiles) }
         }) else { finish(.validationBusy); return }
@@ -711,8 +838,10 @@ final class ClipboardHistory: ObservableObject {
         return pasteboard.changeCount == token.changeCount
     }
 
-    private func writeCopy(_ entry: ClipboardEntry) -> Bool {
-        guard pasteboard.writeContent(entry.content) else { report(ClipboardFailure.copyFailed); return false }
+    private func writeCopy(_ entry: ClipboardEntry, compatiblePNG: Data? = nil) -> Bool {
+        let written = entry.image.map { pasteboard.writeImage($0, compatiblePNG: compatiblePNG) } ?? pasteboard.writeContent(entry.content)
+        guard written else { report(ClipboardFailure.copyFailed); return false }
+        captureGeneration += 1
         let changeCount = pasteboard.changeCount
         lastChangeCount = changeCount
         latestCopyToken = ClipboardCopyToken(id: UUID(), changeCount: changeCount)
@@ -732,6 +861,7 @@ final class ClipboardHistory: ObservableObject {
 
     func clear() {
         cancelCopy()
+        captureGeneration += 1
         clearedDuringLoad = true
         store.clear()
         changed()
@@ -763,10 +893,17 @@ final class ClipboardHistory: ObservableObject {
         lastChangeCount = count
         // The frontmost app is an approximation, not proof of clipboard ownership.
         let app = source()
-        guard !store.excludes(app.bundleID), let content = pasteboard.readContent(),
-              pasteboard.changeCount == count else { return }
-        if store.record(ClipboardEntry(content: content, copiedAt: clock(), sourceBundleID: app.bundleID,
-                                       sourceName: app.name), now: clock()) { changed() }
+        guard !store.excludes(app.bundleID) else { return }
+        captureGeneration += 1
+        let generation = captureGeneration, copiedAt = clock()
+        pasteboard.readContent { [weak self] content in
+            guard let self, self.started, self.enabled, !self.paused,
+                  self.captureGeneration == generation, self.pasteboard.canReadWithoutPrompt,
+                  self.pasteboard.changeCount == count, !self.store.excludes(app.bundleID),
+                  let content else { return }
+            if self.store.record(ClipboardEntry(content: content, copiedAt: copiedAt, sourceBundleID: app.bundleID,
+                                               sourceName: app.name), now: self.clock()) { self.changed() }
+        }
     }
 
     private func updateMonitoringPreference() {
@@ -778,6 +915,7 @@ final class ClipboardHistory: ObservableObject {
     }
 
     private func refreshMonitoring() {
+        captureGeneration += 1
         timer?.invalidate(); timer = nil
         lastChangeCount = nil
         needsAccess = false

@@ -24,7 +24,7 @@ enum Snapshot {
         defer { L10n.snapshotChinese = nil }
         appExtension?.languageDidChange(chinese: L10n.chinese)
         let state = values["--state"] ?? "results"
-        let launcherStates: Set<String> = ["unified", "clipboard", "clipboard-files", "system-settings", "calculator", "currency", "currency-loading", "currency-unavailable"]
+        let launcherStates: Set<String> = ["unified", "clipboard", "clipboard-files", "clipboard-images", "system-settings", "calculator", "currency", "currency-loading", "currency-unavailable"]
         let settingsStates: Set<String> = ["settings", "clipboard-permission", "shortcut-conflict"]
         guard launcherStates.contains(state) || settingsStates.contains(state) || ["results", "recent", "empty", "indexing", "welcome", "toast", "menu", "no-access", "diagnostic", "syntax", "update-available", "update-downloading", "update-failed", "update-latest"].contains(state) else { throw SnapshotError.failed("Invalid state: \(state)") }
         let settingsSection: SettingsSection?
@@ -215,6 +215,13 @@ enum Snapshot {
             ] + clips
             let raw = query ?? ""
             return (SearchSnapshot(raw: raw, scope: .clipboard, leading: files.filter { $0.matches(raw) }.map(LauncherRow.clipboard)), files)
+        case "clipboard-images":
+            guard let image = ClipboardImage.sample() else { throw SnapshotError.failed("Cannot create synthetic clipboard image") }
+            let entries = [ClipboardEntry(content: .image(image), copiedAt: now.addingTimeInterval(-30),
+                                          sourceBundleID: "com.apple.screencaptureui", sourceName: L10n.chinese ? "截屏" : "Screenshot")]
+                + clips
+            let raw = query ?? ""
+            return (SearchSnapshot(raw: raw, scope: .clipboard, leading: entries.filter { $0.matches(raw) }.map(LauncherRow.clipboard)), entries)
         case "system-settings":
             let raw = query ?? (L10n.chinese ? "键盘" : "keyboard")
             return (SearchSnapshot(raw: raw, scope: .settings, leading: SystemSettingsCatalog.search(raw).map(LauncherRow.setting)), [])
