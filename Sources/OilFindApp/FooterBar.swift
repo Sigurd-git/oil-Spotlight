@@ -88,6 +88,7 @@ final class FooterBar: FlippedView {
                 else { hints[0].localize(L10n.text("launcher.copy")) }
                 hints[3].localize(L10n.text("launcher.copy"))
             case .enableClipboard: hints[0].localize(L10n.text("clipboard.enable"))
+            case .action(let action): hints[0].localize(action.title)
             default: hints[3].localize(L10n.text("launcher.copy"))
             }
         }
@@ -107,7 +108,7 @@ final class FooterBar: FlippedView {
         switch launcherRow {
         case .file, nil: applicable = hints
         case .clipboard(let entry): applicable = entry.filePaths == nil ? [hints[0], hints[2], hints[3]] : hints
-        case .enableClipboard: applicable = [hints[0]]
+        case .enableClipboard, .action: applicable = [hints[0]]
         case .currency(_, .loading): applicable = []
         case .currency(_, .unavailable): applicable = [hints[0]]
         default: applicable = [hints[0], hints[3]]

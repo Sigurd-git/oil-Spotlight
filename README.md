@@ -47,6 +47,14 @@ In All, enter `100 usd in to rmb`, `100 USD to CNY`, or `100美元转人民币` 
 
 ![Currency conversion using synthetic rates and an example date](./assets/readme/currency-en.png)
 
+## Native screenshot tools
+
+Press **⌘⇧4** or search for “screenshot”. Capture a region, window, display or manually scrolled page, then edit before copying, saving PNG / JPEG or pinning. The editor supports arrows, shapes, steps, text, pen, highlights, mosaic, opaque redaction, crop, Emoji, stickers, reusable annotation materials, undo and redo. Open image files, clipboard images or editable screenshot history to continue. Vision OCR runs locally only when requested. Pins support resizing, opacity and all-desktop display, and last for this session.
+
+Screenshot history is independent of clipboard history: encrypted defaults of **7 days, 100 images, 256 MiB**; disable or adjust it in Settings → Capture. Editable history keeps the original **before redaction**; exported images contain flattened pixels only. The first capture needs Screen Recording permission. If macOS occupies ⌘⇧4, the Capture settings explain how to disable the matching system shortcut; search and menu entries remain available. See [capture behavior, limits and privacy](./docs/CAPTURE.md).
+
+![Native screenshot editor using a synthetic image](./assets/readme/capture-editor-en.png)
+
 ## Search syntax
 
 | Type | Meaning |
