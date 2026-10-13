@@ -20,7 +20,7 @@ enum SpotlightShortcut {
 }
 
 final class HotKey {
-    enum Identifier: UInt32 { case search = 1, capture = 2 }
+    enum Identifier: UInt32 { case search = 1, capture = 2, captureCopy = 3 }
     static let signature: OSType = 0x4F494C46
     static func matches(_ event: EventHotKeyID, identifier: Identifier) -> Bool {
         event.signature == signature && event.id == identifier.rawValue

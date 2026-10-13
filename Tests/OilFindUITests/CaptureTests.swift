@@ -130,6 +130,8 @@ final class CaptureTests: XCTestCase {
         var selected: CGRect?
         overlay.onSelect = { if case .region(let rect) = $0 { selected = rect } }
         overlay.down(with: down); overlay.up(with: up)
+        XCTAssertNil(selected)
+        overlay.confirmSelection()
         let mainHeight = try XCTUnwrap(NSScreen.screens.first).frame.height
         XCTAssertEqual(selected, CaptureGeometry.quartz(CGRect(x: 120, y: 230, width: 220, height: 140), mainHeight: mainHeight))
     }

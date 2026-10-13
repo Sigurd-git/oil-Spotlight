@@ -2,11 +2,12 @@ import Foundation
 import OilFindCore
 
 enum CaptureAction: String, CaseIterable, Codable {
-    case region, window, display, scroll, history, edit, pin, ocr
+    case region, window, display, scroll, history, edit, pin, ocr, copyRegion
     var title: String { L10n.text("capture.action." + rawValue) }
     var symbol: String {
         switch self {
         case .region: return "viewfinder"
+        case .copyRegion: return "doc.on.clipboard"
         case .window: return "macwindow"
         case .display: return "display"
         case .scroll: return "arrow.down.to.line.compact"
@@ -21,6 +22,7 @@ enum CaptureAction: String, CaseIterable, Codable {
         let values: [String]
         switch self {
         case .region: values = ["截图", "截屏", "区域截图", "screenshot", "screen capture"]
+        case .copyRegion: values = ["直接截图", "截图到剪贴板", "直接复制截图", "quick screenshot", "copy screenshot"]
         case .window: values = ["窗口截图", "窗口截屏", "window screenshot"]
         case .display: values = ["全屏截图", "全屏截屏", "full screen screenshot"]
         case .scroll: values = ["长截图", "滚动截图", "scrolling screenshot"]

@@ -22,6 +22,7 @@ final class CaptureEditorModel: ObservableObject {
     private var undoStack: [CaptureDocument] = [], redoStack: [CaptureDocument] = []
     var onCopy: (() -> Void)?, onSave: (() -> Void)?, onPin: (() -> Void)?, onOCR: (() -> Void)?
     var onSticker: (() -> Void)?, onMaterial: (() -> Void)?, onMaterials: (() -> Void)?, onOpen: (() -> Void)?
+    var onReselect: (() -> Void)?
     init(document: CaptureDocument, saved: Bool = false) { self.document = document; dirty = !saved }
     func loadPreview() {
         refreshResourcePreviews()
@@ -242,6 +243,7 @@ struct CaptureEditorView: View {
             CaptureCanvasHost(model: model)
             Divider()
             HStack {
+                Button(L10n.text("capture.editor.reselect")) { model.onReselect?() }.help(L10n.text("capture.editor.reselectHint"))
                 Text(L10n.text("capture.editor.zoom")); Slider(value: $model.zoom, in: 0.05...3).frame(width: 100)
                 Text("\(Int(model.zoom * 100))%").monospacedDigit()
                 Text(model.status.isEmpty ? L10n.text(model.dirty ? "capture.editor.dirty" : "capture.history.saved") : model.status).font(.caption).lineLimit(2)

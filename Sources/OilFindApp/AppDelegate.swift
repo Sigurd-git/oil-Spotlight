@@ -26,6 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var languageObserver: NSObjectProtocol?
     private var hotKey: HotKey?
     private var captureHotKey: HotKey?
+    private var captureCopyHotKey: HotKey?
     private lazy var capture = CaptureCoordinator(clipboard: panel.searchController.clipboard)
     private var actualKeyCode: UInt32?, actualModifiers: UInt32?
     private var shortcutRetryObserver: NSObjectProtocol?
@@ -62,8 +63,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         buildMenu(keyCode: key, modifiers: modifiers)
         capture.hideSearch = { [weak self] in self?.panel.hide(source: .interaction) }
         capture.showSettings = { [weak self] in self?.presentSettings(section: .capture) }
-        capture.settings.onSuspend = { [weak self] in self?.captureHotKey?.unregister(); self?.captureHotKey = nil; self?.capture.settings.actualShortcut = nil }
+        capture.settings.onSuspend = { [weak self] in
+            self?.captureHotKey?.unregister(); self?.captureHotKey = nil; self?.capture.settings.actualShortcut = nil
+            self?.captureCopyHotKey?.unregister(); self?.captureCopyHotKey = nil; self?.capture.settings.actualCopyShortcut = nil
+        }
         capture.settings.onRegister = { [weak self] in self?.registerCaptureHotKey(code: $0, modifiers: $1) ?? false }
+        capture.settings.onRegisterCopy = { [weak self] in self?.registerCaptureCopyHotKey(code: $0, modifiers: $1) ?? false }
         capture.settings.onRetryShortcut = { [weak self] in self?.retryCaptureHotKey() }
         retryCaptureHotKey()
         panel.searchController.onCaptureAction = { [weak self] in self?.capture.run($0) }
@@ -89,7 +94,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let wanted = UInt32(clamping: defaults.integer(forKey: "hotKeyCode"))
             let mask = UInt32(clamping: defaults.integer(forKey: "hotKeyModifiers"))
             if self.actualKeyCode != wanted || self.actualModifiers != mask { self.retryHotKey() }
-            if !self.capture.settings.recording && self.captureHotKey == nil { self.retryCaptureHotKey() }
+            if !self.capture.settings.recording && (self.captureHotKey == nil || self.captureCopyHotKey == nil) { self.retryCaptureHotKey() }
             self.capture.settings.refreshPermission(self.capture.backend.hasPermission)
         }
         panel.searchController.onSettings = { [weak self] in self?.showSettings() }
@@ -210,14 +215,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func registerHotKey(keyCode: UInt32, modifiers: UInt32) -> Bool {
         hotKey?.unregister()
         hotKey = nil; actualKeyCode = nil; actualModifiers = nil
-        if !SpotlightShortcut.isReserved(keyCode: keyCode, modifiers: modifiers), captureHotKey?.uses(keyCode: keyCode, modifiers: modifiers) != true {
+        if !SpotlightShortcut.isReserved(keyCode: keyCode, modifiers: modifiers),
+            captureHotKey?.uses(keyCode: keyCode, modifiers: modifiers) != true, captureCopyHotKey?.uses(keyCode: keyCode, modifiers: modifiers) != true {
             hotKey = HotKey(keyCode: keyCode, modifiers: modifiers) { [weak self] in self?.handleHotKey() }
         }
         let requestedRegistered = hotKey != nil
         if requestedRegistered { actualKeyCode = keyCode; actualModifiers = modifiers }
         else if keyCode == Shortcut.defaultKeyCode && modifiers == Shortcut.defaultModifiers,
                 !SpotlightShortcut.isReserved(keyCode: Shortcut.fallbackKeyCode, modifiers: Shortcut.fallbackModifiers),
-                captureHotKey?.uses(keyCode: Shortcut.fallbackKeyCode, modifiers: Shortcut.fallbackModifiers) != true {
+                captureHotKey?.uses(keyCode: Shortcut.fallbackKeyCode, modifiers: Shortcut.fallbackModifiers) != true,
+                captureCopyHotKey?.uses(keyCode: Shortcut.fallbackKeyCode, modifiers: Shortcut.fallbackModifiers) != true {
             hotKey = HotKey(keyCode: Shortcut.fallbackKeyCode, modifiers: Shortcut.fallbackModifiers) { [weak self] in self?.handleHotKey() }
             if hotKey != nil { actualKeyCode = Shortcut.fallbackKeyCode; actualModifiers = Shortcut.fallbackModifiers }
         }
@@ -229,12 +236,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
     private func registerCaptureHotKey(code: UInt32, modifiers: UInt32) -> Bool {
         captureHotKey?.unregister(); captureHotKey = nil
-        if !SpotlightShortcut.isReserved(keyCode: code, modifiers: modifiers), hotKey?.uses(keyCode: code, modifiers: modifiers) != true {
+        if !SpotlightShortcut.isReserved(keyCode: code, modifiers: modifiers), hotKey?.uses(keyCode: code, modifiers: modifiers) != true,
+            captureCopyHotKey?.uses(keyCode: code, modifiers: modifiers) != true {
             captureHotKey = HotKey(keyCode: code, modifiers: modifiers, identifier: .capture) { [weak self] in self?.capture.run(.region) }
         }
         capture.settings.status(bound: captureHotKey != nil); return captureHotKey != nil
     }
-    private func retryCaptureHotKey() { _ = registerCaptureHotKey(code: capture.settings.keyCode, modifiers: capture.settings.modifiers) }
+    private func registerCaptureCopyHotKey(code: UInt32, modifiers: UInt32) -> Bool {
+        captureCopyHotKey?.unregister(); captureCopyHotKey = nil
+        if !SpotlightShortcut.isReserved(keyCode: code, modifiers: modifiers), hotKey?.uses(keyCode: code, modifiers: modifiers) != true,
+            captureHotKey?.uses(keyCode: code, modifiers: modifiers) != true {
+            captureCopyHotKey = HotKey(keyCode: code, modifiers: modifiers, identifier: .captureCopy) { [weak self] in self?.capture.run(.copyRegion) }
+        }
+        capture.settings.status(bound: captureCopyHotKey != nil, copy: true); return captureCopyHotKey != nil
+    }
+    private func retryCaptureHotKey() {
+        _ = registerCaptureHotKey(code: capture.settings.keyCode, modifiers: capture.settings.modifiers)
+        _ = registerCaptureCopyHotKey(code: capture.settings.copyKeyCode, modifiers: capture.settings.copyModifiers)
+    }
     private func updateShortcutStatus(clearErrorWhenBound: Bool = false) {
         let defaults = UserDefaults.standard
         let desired = UInt32(clamping: defaults.integer(forKey: "hotKeyCode"))
@@ -358,6 +377,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         permissionTimer?.invalidate()
         hotKey?.unregister()
         captureHotKey?.unregister()
+        captureCopyHotKey?.unregister()
         manager?.stop()
     }
     deinit {
