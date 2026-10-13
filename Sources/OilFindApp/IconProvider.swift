@@ -27,6 +27,24 @@ final class IconProvider {
             }
         }
     }
+    func clipboardImage(_ image: ClipboardImage, maximumSize: Int = 64, completion: @escaping (NSImage) -> Void) {
+        let key = "clipboard-image:" + image.fingerprint.base64EncodedString() + ":\(maximumSize)"
+        if let cached = paths.object(forKey: key as NSString) { completion(cached); return }
+        if pending[key] != nil { pending[key]!.append(completion); return }
+        pending[key] = [completion]
+        queue.async { [weak self] in
+            let cg = image.thumbnail(maximumSize: maximumSize)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                let callbacks = self.pending.removeValue(forKey: key) ?? []
+                guard let cg else { return }
+                let rendered = NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
+                // Large previews stay out of the file icon cache.
+                if maximumSize <= 64 { self.paths.setObject(rendered, forKey: key as NSString) }
+                callbacks.forEach { $0(rendered) }
+            }
+        }
+    }
     func icon(name: String, path: String, flags: UInt8, kind: UInt8, resolveFileIcon: Bool = true, loadFileIcon: Bool = false,
               completion: @escaping (NSImage) -> Void) -> NSImage {
         precondition(Thread.isMainThread)
