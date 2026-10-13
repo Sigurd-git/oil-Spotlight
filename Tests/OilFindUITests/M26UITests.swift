@@ -6,20 +6,30 @@ import OilFindCore
 
 final class M26UITests: XCTestCase {
     private func resetPreviewPanel(owning panel: SearchPanel) {
-        // Remove the fixture from the responder chain before hiding Quick Look.
-        // AppKit then ends preview control through the normal owner callback,
-        // without leaving a live key window eligible to reclaim the singleton.
-        panel.close()
+        // Keep the preview owner alive until AppKit completes its hide transition
+        // and ends preview control. Removing the owner first can interrupt that
+        // transition and leave a controller-less native panel marked visible.
+        panel.searchController.quickLook.close()
+        defer { panel.close() }
         guard QLPreviewPanel.sharedPreviewPanelExists(), let preview = QLPreviewPanel.shared() else { return }
         preview.orderOut(nil)
+        preview.close()
         // Observe the active shared panel, as QuickLook.isVisible does, rather
         // than assuming a retained native window remains the current singleton.
         let hidden = expectation(for: NSPredicate { _, _ in
-            !QLPreviewPanel.sharedPreviewPanelExists() || !QLPreviewPanel.shared().isVisible
+            NSApp.updateWindows()
+            guard QLPreviewPanel.sharedPreviewPanelExists(), let current = QLPreviewPanel.shared() else { return true }
+            // Quick Look can finish an asynchronous presentation after teardown
+            // starts. Drain that transition while preserving the owner and the
+            // original visibility assertion and three-second deadline.
+            if current.isVisible { current.orderOut(nil); current.close() }
+            return !current.isVisible
         }, evaluatedWith: nil)
         wait(for: [hidden], timeout: 3)
         if QLPreviewPanel.sharedPreviewPanelExists(), let current = QLPreviewPanel.shared() {
             print("Quick Look teardown: samePanel=\(preview === current), retainedVisible=\(preview.isVisible), currentVisible=\(current.isVisible), fixtureVisible=\(panel.isVisible), controller=\(String(describing: current.currentController))")
+            let info = CGWindowListCopyWindowInfo(.optionIncludingWindow, CGWindowID(current.windowNumber)) as? [[String: Any]]
+            print("Quick Look native state: window=\(current.windowNumber), occlusion=\(current.occlusionState.rawValue), appActive=\(NSApp.isActive), appHidden=\(NSApp.isHidden), onScreen=\(String(describing: info?.first?[kCGWindowIsOnscreen as String]))")
             XCTAssertFalse(current.isVisible, "Current native preview remained visible: key=\(current.isKeyWindow), controller=\(String(describing: current.currentController)), dataSource=\(String(describing: current.dataSource))")
         }
     }
@@ -27,7 +37,9 @@ final class M26UITests: XCTestCase {
         _ = NSApplication.shared
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("OilFindM26-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        for index in 0..<100 { try Data().write(to: root.appendingPathComponent(String(format: "row%03d.txt", index))) }
+        for index in 0..<100 {
+            try Data("Synthetic Quick Look preview \(index)\n".utf8).write(to: root.appendingPathComponent(String(format: "row%03d.txt", index)))
+        }
         let config = IndexConfig(rootPath: root.path)
         let store = IndexStore(scan: try XCTUnwrap(Scanner(config: config, threads: 1).run()), config: config)
         return (root, store, config)

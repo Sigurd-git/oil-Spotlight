@@ -68,5 +68,14 @@ export function ScopeDemo({ lang }: { lang: Language }) {
       </div>
       <footer className={styles.footer}>{lang === 'zh' ? '网站合成数据演示' : 'Synthetic website demo'} · {t.scopeKeyboard}</footer>
     </div>
+    <article className={`sheet ${styles.card}`} aria-label={t.captureTitle}>
+      <div className={styles.body}>
+        <h3>{t.captureTitle}</h3>
+        <p>{t.captureBody}</p>
+        <p className={styles.note}>{t.captureShortcut}</p>
+        <img src={`/demo/capture-editor-${lang}.png`} width="1050" height="730" alt={t.captureTitle} style={{ width: '100%', height: 'auto', borderRadius: 12 }} loading="lazy" />
+        <p className={styles.note}>{t.capturePrivacy}</p>
+      </div>
+    </article>
   </section>;
 }

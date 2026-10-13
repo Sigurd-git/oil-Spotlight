@@ -88,6 +88,8 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
     }
     var hidePanel: (() -> Void)?
     var onSettings: (() -> Void)?
+    var onCaptureAction: ((CaptureAction) -> Void)?
+    var onEditClipboardImage: ((ClipboardImage, CaptureAction) -> Void)?
     init(snapshot: Bool, preferences: UserDefaults = .standard, clipboard: ClipboardHistory? = nil,
          currencyRates: CurrencyRateProvider? = nil, clock: @escaping () -> Date = Date.init) {
         self.snapshot = snapshot
@@ -545,6 +547,7 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
             case .url(let url), .web(_, let url):
                 if NSWorkspace.shared.open(url) { hidePanel?() } else { NSSound.beep() }; return
             case .enableClipboard: clipboard.setEnabled(true); startSearch(); return
+            case .action(let action): onCaptureAction?(action); return
             case .file: break
             }
         }
@@ -589,7 +592,7 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
             case .setting(let setting): copyText(setting.name); return
             case .app(let app): copyText(app.path); return
             case .url(let url), .web(_, let url): copyText(url.absoluteString); return
-            case .enableClipboard: return
+            case .enableClipboard, .action: return
             case .file: break
             }
         }
@@ -642,9 +645,11 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
             if case .clipboard(let entry) = row {
                 actions = [("clipboard.paste", 0), ("launcher.copy", 4), ("hint.preview", 2)]
                 if entry.filePaths != nil { actions += [("hint.reveal", 1), ("clipboard.copyPaths", 8)] }
+                if entry.image != nil { actions += [("capture.action.edit", 9), ("capture.action.ocr", 10), ("capture.action.pin", 11)] }
                 actions.append(("clipboard.delete", 7))
             }
             if case .enableClipboard = row { actions = [("clipboard.enable", 0)] }
+            if case .action(let action) = row { actions = [("capture.action." + action.rawValue, 0)] }
             if case .currency(let query, let lookup) = row {
                 guard resultIsCurrent, currentCurrencyQuery == query else { return menu }
                 switch lookup {
@@ -675,6 +680,9 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
         case 8:
             guard resultIsCurrent, case .clipboard(let entry)? = results.selectedLauncherRow else { return }
             copyText(entry.text)
+        case 9, 10, 11:
+            guard resultIsCurrent, case .clipboard(let entry)? = results.selectedLauncherRow, let image = entry.image else { return }
+            onEditClipboardImage?(image, item.tag == 10 ? .ocr : item.tag == 11 ? .pin : .edit)
         default: break
         }
     }

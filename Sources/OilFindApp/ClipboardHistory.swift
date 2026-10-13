@@ -838,6 +838,17 @@ final class ClipboardHistory: ObservableObject {
         return pasteboard.changeCount == token.changeCount
     }
 
+    // Screenshot tools mark their writes, then explicitly record eligible content.
+    // This keeps monitoring opt-in and prevents the same generated image polling twice.
+    func recordGenerated(_ content: ClipboardContent?) {
+        precondition(Thread.isMainThread)
+        guard !snapshot else { return }
+        captureGeneration += 1; lastChangeCount = pasteboard.changeCount; latestCopyToken = nil
+        guard enabled, !paused, let content else { return }
+        let entry = ClipboardEntry(content: content, copiedAt: clock(), sourceBundleID: Bundle.main.bundleIdentifier, sourceName: "Oil Find")
+        if store.record(entry, now: clock()) { changed() }
+    }
+
     private func writeCopy(_ entry: ClipboardEntry, compatiblePNG: Data? = nil) -> Bool {
         let written = entry.image.map { pasteboard.writeImage($0, compatiblePNG: compatiblePNG) } ?? pasteboard.writeContent(entry.content)
         guard written else { report(ClipboardFailure.copyFailed); return false }

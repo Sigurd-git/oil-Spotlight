@@ -18,6 +18,10 @@ public enum Application {
         do { try UpdateExercise.start(arguments); NSApplication.shared.run(); exit(0) }
         catch { fputs("Oil Find update exercise: \(error)\n", stderr); exit(1) }
     }
+    if CaptureUpgradeExercise.handles(arguments) {
+        do { try CaptureUpgradeExercise.start(arguments); NSApplication.shared.run(); exit(0) }
+        catch { fputs("Oil Find capture upgrade exercise failed\n", stderr); exit(1) }
+    }
     fputs("Oil Find: Debug builds only support --snapshot and controlled test probes; background indexing is disabled.\n", stderr)
     exit(2)
 #else

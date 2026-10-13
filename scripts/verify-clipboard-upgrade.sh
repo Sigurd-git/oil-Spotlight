@@ -107,11 +107,12 @@ echo "Compiling standalone probes: -O, Swift 5, $architecture macOS 14; existing
 compile=(-O -swift-version 5 -target "$architecture-apple-macosx14.0" -module-cache-path "$temporary/module-cache")
 bounded /usr/bin/xcrun swiftc "${compile[@]}" -parse-as-library -D KEYCHAIN_ADMIN "$probe" -o "$admin"
 # Freeze all production storage sources for a coherent pair of builds.
-for source in ClipboardHistory ClipboardImage ClipboardKeyAccess ClipboardKeyServiceClient; do
+for source in ClipboardHistory ClipboardImage ClipboardKeyAccess ClipboardKeyServiceClient CaptureDocument CaptureStorage; do
     cp "$repo/Sources/OilFindApp/$source.swift" "$temporary/$source.swift"
 done
 shasum -a 256 "$temporary/ClipboardHistory.swift" "$temporary/ClipboardImage.swift" "$temporary/ClipboardKeyAccess.swift" \
-    "$temporary/ClipboardKeyServiceClient.swift" > "$evidence/production.sha256"
+    "$temporary/ClipboardKeyServiceClient.swift" "$temporary/CaptureDocument.swift" \
+    "$temporary/CaptureStorage.swift" > "$evidence/production.sha256"
 for version in v1 v2; do
     flags=(-D UPGRADE_V2)
     if [[ $version == v1 ]]; then flags=(-D UPGRADE_V1); fi
@@ -119,7 +120,8 @@ for version in v1 v2; do
         -I "$modules" -Xcc "-fmodule-map-file=$module_map" \
         "$temporary/ClipboardKeyAccess.swift" \
         "$temporary/ClipboardKeyServiceClient.swift" \
-        "$temporary/ClipboardImage.swift" "$temporary/ClipboardHistory.swift" "$probe" -o "$temporary/$version"
+        "$temporary/ClipboardImage.swift" "$temporary/ClipboardHistory.swift" \
+        "$temporary/CaptureDocument.swift" "$temporary/CaptureStorage.swift" "$probe" -o "$temporary/$version"
 done
 openssl rand -hex 32 > "$temporary/password"
 bounded "$admin" create "$keychain" "$temporary/password"

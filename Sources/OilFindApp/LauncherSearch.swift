@@ -9,6 +9,7 @@ enum SearchScope: String, CaseIterable {
 enum LauncherRow {
     case file(ResultItem), app(LauncherApp), setting(SystemSetting), clipboard(ClipboardEntry)
     case answer(ToolAnswer), currency(CurrencyQuery, CurrencyLookup), url(URL), web(String, URL), enableClipboard
+    case action(CaptureAction)
 
     var identity: String {
         switch self {
@@ -21,6 +22,7 @@ enum LauncherRow {
         case .url(let url): return "url:" + url.absoluteString
         case .web(let query, _): return "web:" + query
         case .enableClipboard: return "enableClipboard"
+        case .action(let action): return "capture:" + action.rawValue
         }
     }
     var title: String {
@@ -39,6 +41,7 @@ enum LauncherRow {
         case .url(let url): return url.absoluteString
         case .web(let query, _): return L10n.text("launcher.web", query)
         case .enableClipboard: return L10n.text("clipboard.enable")
+        case .action(let action): return action.title
         }
     }
     var subtitle: String {
@@ -62,6 +65,7 @@ enum LauncherRow {
         case .url: return L10n.text("launcher.openURL")
         case .web: return L10n.text("launcher.webHint")
         case .enableClipboard: return L10n.text("clipboard.enableHint")
+        case .action: return L10n.text("capture.action.hint")
         }
     }
     var symbol: String {
@@ -75,6 +79,7 @@ enum LauncherRow {
         case .url: return "link"
         case .web: return "globe"
         case .enableClipboard: return "clipboard"
+        case .action(let action): return action.symbol
         }
     }
 }
@@ -297,6 +302,7 @@ final class SearchCoordinator {
                 }
                 if scope == .settings || scope == .all && !query.isEmpty { extra += SystemSettingsCatalog.search(query).map(LauncherRow.setting) }
                 if scope == .all && !composing {
+                    extra += CaptureAction.search(query).map(LauncherRow.action)
                     if calculator, let answer = LauncherTools.evaluate(query) { extra.insert(.answer(answer), at: 0) }
                     if let currency, case .currency(let request, _) = currency, request.expression == query { extra.insert(currency, at: 0) }
                     if let url = LauncherTools.url(query) { extra.insert(.url(url), at: 0) }
@@ -333,6 +339,7 @@ final class SearchCoordinator {
             case .answer, .currency, .url, .web: rank = -1; source = -1
             case .app(let app): rank = LauncherMatch.rank(raw, in: [app.name] + app.aliases) ?? 3; source = 0
             case .setting(let setting): rank = LauncherMatch.rank(raw, in: [setting.name] + setting.aliases) ?? 3; source = 1
+            case .action(let action): rank = LauncherMatch.rank(raw, in: action.aliases) ?? 3; source = 1
             default: continue
             }
             candidates.append((row, rank, source, nil))
