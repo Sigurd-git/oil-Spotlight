@@ -166,6 +166,20 @@ final class CaptureWorkflowTests: XCTestCase {
         XCTAssertEqual(cancellations, 1)
         XCTAssertEqual(receiver.keys, [53])
     }
+    func testOtherApplicationActivationCancelsEvenWhileOverlayStillHasKeyStatus() throws {
+        let (overlay, windows) = try presentOverlay(), window = try XCTUnwrap(windows.first)
+        var cancellations = 0; overlay.onCancel = { cancellations += 1; overlay.close() }
+        window.makeKey(); XCTAssertTrue(window.isKeyWindow)
+        let center = NSWorkspace.shared.notificationCenter
+        center.post(name: NSWorkspace.didActivateApplicationNotification, object: nil, userInfo: [NSWorkspace.applicationUserInfoKey: NSRunningApplication.current])
+        XCTAssertEqual(cancellations, 0)
+        let application = try XCTUnwrap(NSWorkspace.shared.runningApplications.first { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier && $0.activationPolicy != .prohibited })
+        center.post(name: NSWorkspace.didActivateApplicationNotification, object: nil, userInfo: [NSWorkspace.applicationUserInfoKey: application])
+        XCTAssertEqual(cancellations, 1)
+        XCTAssertFalse(window.isVisible)
+        center.post(name: NSWorkspace.didActivateApplicationNotification, object: nil, userInfo: [NSWorkspace.applicationUserInfoKey: application])
+        XCTAssertEqual(cancellations, 1)
+    }
     func testCaptureMonitorPassesUnhandledKeysToTheResponder() throws {
         let (_, windows) = try presentOverlay(), window = try XCTUnwrap(windows.first)
         let receiver = KeyReceiver(); window.contentView = receiver; window.makeFirstResponder(receiver)
