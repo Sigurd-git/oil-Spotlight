@@ -21,6 +21,7 @@ final class CaptureOverlayController {
     private let requiresConfirmation: Bool
     private var keyMonitor: Any?
     private var focusObserver: NSObjectProtocol?
+    private var activationObserver: NSObjectProtocol?
     var onSelect: ((CaptureSelection) -> Void)?, onCancel: (() -> Void)?
     init(catalog: CaptureCatalog, windowMode: Bool, requiresConfirmation: Bool = true) {
         self.catalog = catalog; self.windowMode = windowMode
@@ -55,6 +56,12 @@ final class CaptureOverlayController {
                       !self.windows.contains(where: { $0.isKeyWindow }) else { return }
                 self.onCancel?()
             }
+        }
+        activationObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] notification in
+            guard let self, !self.windows.isEmpty,
+                  let application = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+                  application.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return }
+            self.onCancel?()
         }
         redraw()
     }
@@ -128,6 +135,7 @@ final class CaptureOverlayController {
     func close() {
         if let keyMonitor { NSEvent.removeMonitor(keyMonitor); self.keyMonitor = nil }
         if let focusObserver { NotificationCenter.default.removeObserver(focusObserver); self.focusObserver = nil }
+        if let activationObserver { NSWorkspace.shared.notificationCenter.removeObserver(activationObserver); self.activationObserver = nil }
         pendingSelection = nil; windows.forEach { $0.close() }; windows = []; views = []
     }
     deinit { close() }
