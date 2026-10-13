@@ -24,7 +24,7 @@ final class CaptureOverlayController {
     func present() {
         for display in catalog.displays {
             let window = CaptureOverlayWindow(contentRect: CaptureGeometry.cocoa(display.frame, mainHeight: mainHeight), styleMask: .borderless, backing: .buffered, defer: false)
-            window.backgroundColor = .clear; window.isOpaque = false; window.hasShadow = false; window.level = .screenSaver
+            window.backgroundColor = .clear; window.isOpaque = false; window.hasShadow = false; window.isRestorable = false; window.level = .screenSaver
             window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]; window.acceptsMouseMovedEvents = true; window.isReleasedWhenClosed = false
             let view = CaptureOverlayView(frame: CGRect(origin: .zero, size: display.frame.size)); view.controller = self
             window.contentView = view; windows.append(window); views.append(view); window.orderFrontRegardless()
@@ -142,7 +142,7 @@ final class CapturePinController: NSWindowController, NSWindowDelegate {
     init(image: CGImage? = nil, text: String? = nil) {
         self.image = image; self.text = text
         let window = NSPanel(contentRect: CGRect(x: 0, y: 0, width: 360, height: image.map { min(600, max(160, 360 * Double($0.height) / Double($0.width))) } ?? 240), styleMask: [.titled, .closable, .resizable, .utilityWindow], backing: .buffered, defer: false)
-        window.title = L10n.text("capture.action.pin"); window.level = .floating; window.hidesOnDeactivate = false; window.isReleasedWhenClosed = false
+        window.title = L10n.text("capture.action.pin"); window.level = .floating; window.hidesOnDeactivate = false; window.isReleasedWhenClosed = false; window.isRestorable = false
         window.isMovableByWindowBackground = true; window.collectionBehavior = [.fullScreenAuxiliary]
         let content: NSView
         if let image {
