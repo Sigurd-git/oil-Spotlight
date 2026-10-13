@@ -7,10 +7,14 @@ import OilFindCore
 final class M26UITests: XCTestCase {
     private func resetPreviewPanel() {
         guard QLPreviewPanel.sharedPreviewPanelExists(), let preview = QLPreviewPanel.shared() else { return }
-        // Keep the native singleton alive; closing it can recreate a panel during later callbacks.
-        preview.orderOut(nil)
+        // Teardown must cancel the native preview presentation, not just hide
+        // its window while Quick Look may still finish a queued presentation.
+        // Retain it until the close transition and controller release complete.
+        preview.isReleasedWhenClosed = false
+        preview.close()
         let hidden = expectation(for: NSPredicate { _, _ in !preview.isVisible }, evaluatedWith: preview)
         wait(for: [hidden], timeout: 3)
+        XCTAssertFalse(preview.isVisible, "Native preview remained visible: key=\(preview.isKeyWindow), controller=\(String(describing: preview.currentController)), dataSource=\(String(describing: preview.dataSource))")
         // Clearing live preview content can start another native transition.
         // Release its controller only after the previous hide has finished.
         preview.dataSource = nil; preview.delegate = nil
@@ -137,7 +141,6 @@ extension M26UITests {
         let (root, store, _) = try fixture(); defer { try? FileManager.default.removeItem(at: root) }
         let panel = SearchPanel(snapshot: true)
         defer {
-            panel.searchController.quickLook.close()
             // Finish the preview transition while its controlling window is still alive.
             resetPreviewPanel()
             panel.close()
@@ -166,7 +169,6 @@ extension M26UITests {
         XCTAssertTrue(controller.handleKey(key(16, characters: "y", flags: .command)))
         RunLoop.main.run(until: Date().addingTimeInterval(0.2))
         XCTAssertTrue(controller.quickLook.isVisible)
-        controller.quickLook.close()
     }
     func testExcludedTypesCommitNormalizationUndoRedoAndBlur() throws {
         _ = NSApplication.shared
