@@ -281,6 +281,30 @@ final class CaptureTests: XCTestCase {
         XCTAssertEqual(reduced.width, 40); XCTAssertEqual(reduced.height, 30)
         XCTAssertTrue(CaptureDocument(original: try CaptureRaster(image: reduced)).valid)
     }
+    func testArchiveReadsMaximumCountWithLongValidEncryptedMetadata() throws {
+        let root = try temporary(), keys = Keys()
+        let entries = (0..<1000).map { index in CaptureArchiveEntry(id: UUID(), blob: UUID(), title: String(format: "%04d-", index) + String(repeating: "a", count: 4090), updatedAt: Date(), width: 1, height: 1, bytes: 4096) }
+        let encoder = PropertyListEncoder(); encoder.outputFormat = .binary
+        let plain = try encoder.encode(entries); XCTAssertGreaterThan(plain.count, 2 * 1024 * 1024)
+        let derived = HKDF<SHA256>.deriveKey(inputKeyMaterial: keys.value, salt: Data("OilFindCapture.v1".utf8), info: Data("history".utf8), outputByteCount: 32)
+        let sealed = try AES.GCM.seal(plain, using: derived, authenticating: Data("OilFindCapture.v1:history".utf8)).combined!
+        try sealed.write(to: root.appendingPathComponent("index.encrypted"))
+        XCTAssertEqual(try archive(root, keys: keys).load().count, 1000)
+    }
+    func testArchiveKeepsNewestSaveAfterClockRollbackAndIncludesIndexInQuota() throws {
+        let root = try temporary(), keys = Keys(), store = archive(root, keys: keys)
+        let earlier = Date(timeIntervalSince1970: 1_800_000_000)
+        let first = CaptureDocument(original: try raster()), second = CaptureDocument(original: try raster(offset: 1))
+        try store.save(first, retention: .init(count: 1), now: earlier.addingTimeInterval(3600))
+        try store.save(second, retention: .init(count: 1), now: earlier)
+        XCTAssertEqual(store.entries.map(\.id), [second.id]); XCTAssertEqual(try store.document(store.entries[0]).id, second.id)
+        let files = try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.fileSizeKey])
+        XCTAssertEqual(files.filter { $0.pathExtension == "encrypted" }.count, 3)
+        let total = try files.reduce(0) { try $0 + ($1.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0) }
+        let quota = total - 1
+        XCTAssertThrowsError(try store.save(second, retention: .init(count: 1, bytes: quota), now: earlier))
+        XCTAssertEqual(store.entries.map(\.id), [second.id])
+    }
     func testTextWindowsAllocateReadableContentAndReleaseOnClose() {
         let controller = CaptureTextController(text: "合成 OCR\nOil Find 12345"), window = controller.window!
         XCTAssertFalse(window.isRestorable)

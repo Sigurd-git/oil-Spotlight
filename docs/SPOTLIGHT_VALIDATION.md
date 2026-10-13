@@ -359,17 +359,19 @@ HEIC 专项最初发现系统无法解码 1 像素缩略图，改用有界的 64
 
 | 检查 | 结果 | 本地证据 |
 | --- | --- | --- |
-| 完整 Swift 测试 | 400 项：389 通过、11 项显式性能测试默认跳过、0 失败；截图专项 26 项 | `swift-test-delivery.log` |
+| 完整 Swift 测试 | 402 项：391 通过、11 项显式性能测试默认跳过、0 失败；截图专项 28 项 | `swift-test-final-archive.log` |
 | 相关界面回归 | 截图及 Quick Look 共 35 项通过；另验证新增尺寸降低分支及缓存命令别名 | `final-native-regression.log`、`action-alias-regression.log`、完整测试 |
 | Python 脚本 | uv 下 68 项通过，包含公开模块边界 | `open-core.log`、`test_*.py.log` |
 | 官网 | Node.js 22：209 项测试、类型检查及正式构建通过 | `site-test.log`、`site-typecheck.log`、`site-build.log` |
-| 隔离加密升级 | 独立进程恢复旧文本、文件引用、图片及可编辑截图；损坏、拒绝和缺失密钥时保护原档；钥匙串搜索列表、默认项与 trust 均不变 | `encrypted-upgrade-final.log` |
-| 真实固定 XPC 升级 | 内容不同的稳定签名 Debug 构建复用相同服务，恢复现有 91 条真实剪贴板及测试目录中的四层截图文档；只输出条数，无授权弹窗 | `upgrade-identities.json`、`fixed-service-final-read.log` |
+| 隔离加密升级 | 独立进程恢复旧文本、文件引用、图片及可编辑截图；损坏、拒绝和缺失密钥时保护原档；钥匙串搜索列表、默认项与 trust 均不变 | `encrypted-upgrade-archive-final.log` |
+| 真实固定 XPC 升级 | 内容不同的稳定签名 Debug 构建复用相同服务，恢复现有 91 条真实剪贴板及测试目录中的四层截图文档；只输出条数，无授权弹窗 | `upgrade-identities.json`、`signing-final.json`、`fixed-service-archive-final-read.log` |
 | Release / Debug | 稳定证书、leaf、DR、缓存 manifest、独立服务身份、源码指纹及嵌入 XPC 字节一致性核验 | `signing-verification.log` |
 | 正式 Mach-O | `minos 14.0`、`sdk 27.0`；正式版不含截图快照或升级探针入口 | `release-verify.log` |
 | 合成界面 | 捕获、编辑、长截图、历史、权限和快捷键冲突六个场景 × 中英文 × 浅深色，共 24 张 | `snapshot-results.json`、`snapshots/` |
 
 Quick Look 用例的功能断言在初始失败时已通过，失败发生在原生共享窗口清理。夹具改为先保持预览拥有者存活，刷新 AppKit 的窗口状态并在三秒期限内关闭晚到的原生呈现，再释放拥有者；所有可见性、导航、Space、Escape 与面板保留断言及原期限继续保留。文本夹具改为有效的合成文档，生产 Quick Look 代码未修改。初始失败与各次诊断日志保留，最终完整回归通过。
+
+截图、编辑、历史、OCR 和钉图窗口禁用 macOS 窗口状态恢复，避免重启后自动重新显示私人内容。存储专项还覆盖 1,000 条较长标题的加密索引、系统时间回调后的保存顺序，以及正文、缩略图和加密索引共同计入容量；提交失败仍保留原档。
 
 同机、同只读索引的 Release CLI 对照使用修改前实际二进制与本轮二进制。26 个查询的结果条数在八轮交替运行中全部一致；每个二进制四轮、每轮每个查询 20 次。下表是各轮 p95 的中位数，不是所有样本合并后的 p95：
 
