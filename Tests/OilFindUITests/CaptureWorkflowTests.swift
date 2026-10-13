@@ -66,6 +66,76 @@ final class CaptureWorkflowTests: XCTestCase {
         overlay.select(.window(7)); XCTAssertEqual(overlay.selectedRect, rect)
         overlay.reselect(); XCTAssertNil(overlay.selectedRect)
     }
+    func testReselectingWindowReturnsToRegionDrawing() throws {
+        try assertWindowReselectionDrawsRegion(resetFirst: true)
+    }
+    func testDraggingAgainAfterWindowSelectionReturnsToRegionDrawing() throws {
+        try assertWindowReselectionDrawsRegion(resetFirst: false)
+    }
+    private func assertWindowReselectionDrawsRegion(resetFirst: Bool) throws {
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: CGRect(x: 100, y: 200, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.orderFront(nil); defer { window.close() }
+        let bounds = CaptureGeometry.quartz(window.frame, mainHeight: try XCTUnwrap(NSScreen.screens.first).frame.height)
+        let overlay = CaptureOverlayController(catalog: .init(displays: [], windows: [.init(id: 7, frame: bounds, title: "Synthetic", owner: "QA")]), windowMode: true)
+        var selections: [CaptureSelection] = []; overlay.onSelect = { selections.append($0) }
+        overlay.select(.window(7))
+        if resetFirst { overlay.reselect() }
+        let down = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseDown, location: CGPoint(x: 20, y: 30), modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+        let up = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseUp, location: CGPoint(x: 240, y: 170), modifierFlags: [], timestamp: 1, windowNumber: window.windowNumber, context: nil, eventNumber: 2, clickCount: 1, pressure: 0))
+        overlay.down(with: down); overlay.up(with: up)
+        let expected = CaptureSelection.region(CaptureGeometry.quartz(CGRect(x: 120, y: 230, width: 220, height: 140), mainHeight: try XCTUnwrap(NSScreen.screens.first).frame.height))
+        XCTAssertEqual(overlay.pendingSelection, expected)
+        overlay.confirmSelection(); XCTAssertEqual(selections, [expected])
+    }
+    private func key(_ code: UInt16, repeatKey: Bool = false) throws -> NSEvent {
+        try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: repeatKey, keyCode: code))
+    }
+    func testSpaceTogglesWindowModeBackToRegionWithoutCapturing() throws {
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: CGRect(x: 100, y: 200, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.orderFront(nil); defer { window.close() }
+        let height = try XCTUnwrap(NSScreen.screens.first).frame.height
+        let bounds = CaptureGeometry.quartz(window.frame, mainHeight: height)
+        let overlay = CaptureOverlayController(catalog: .init(displays: [], windows: [.init(id: 7, frame: bounds, title: "Synthetic", owner: "QA")]), windowMode: false)
+        var captured: [CaptureSelection] = []; overlay.onSelect = { captured.append($0) }
+        let move = try XCTUnwrap(NSEvent.mouseEvent(with: .mouseMoved, location: CGPoint(x: 20, y: 30), modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 0, pressure: 0))
+        overlay.handleKey(try key(49)); overlay.move(with: move); XCTAssertEqual(overlay.selectedRect, bounds)
+        overlay.handleKey(try key(49, repeatKey: true)); overlay.move(with: move); XCTAssertEqual(overlay.selectedRect, bounds)
+        overlay.select(.window(7)); overlay.handleKey(try key(49)); overlay.move(with: move)
+        XCTAssertNil(overlay.selectedRect); XCTAssertNil(overlay.pendingSelection); XCTAssertTrue(captured.isEmpty)
+    }
+    func testREntersRegionModeAfterSpaceEvenBeforeChoosingWindow() throws {
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: CGRect(x: 100, y: 200, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.orderFront(nil); defer { window.close() }
+        let bounds = CaptureGeometry.quartz(window.frame, mainHeight: try XCTUnwrap(NSScreen.screens.first).frame.height)
+        let overlay = CaptureOverlayController(catalog: .init(displays: [], windows: [.init(id: 7, frame: bounds, title: "Synthetic", owner: "QA")]), windowMode: false)
+        overlay.handleKey(try key(49)); overlay.handleKey(try key(15))
+        let down = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseDown, location: CGPoint(x: 20, y: 30), modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+        let up = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseUp, location: CGPoint(x: 240, y: 170), modifierFlags: [], timestamp: 1, windowNumber: window.windowNumber, context: nil, eventNumber: 2, clickCount: 1, pressure: 0))
+        overlay.down(with: down); overlay.up(with: up)
+        guard case .region = overlay.pendingSelection else { return XCTFail("R must restore region drawing") }
+    }
+    func testEscapeAfterSpaceCancelsNormalAndQuickCaptureWithoutChangingClipboard() throws {
+        for action in [CaptureAction.region, .copyRegion] {
+            for chosenWindow in [false, true] {
+                let backend = Backend(), board = pasteboard(), history = try history()
+                var overlay: CaptureOverlayController?
+                let coordinator = CaptureCoordinator(clipboard: ClipboardHistory(snapshot: true), backend: backend, history: history, defaults: defaults(), pasteboard: board, presentSelection: { overlay = $0 }, focusRestorer: { _ in })
+                coordinator.onDocument = { _ in XCTFail("Cancelled selection opened an editor") }
+                board.setString("original synthetic content", forType: .string); let revision = board.changeCount
+                coordinator.run(action); let token = coordinator.generation
+                backend.catalogReply?(.success(.init(displays: [], windows: [])))
+                let selection = try XCTUnwrap(overlay); selection.handleKey(try key(49))
+                if chosenWindow && action == .region { selection.select(.window(7)) }
+                XCTAssertTrue(selection.handleKey(try key(53)))
+                XCTAssertGreaterThan(coordinator.generation, token); XCTAssertNil(selection.pendingSelection)
+                XCTAssertTrue(backend.selections.isEmpty); XCTAssertEqual(board.changeCount, revision)
+                XCTAssertTrue(history.entries.isEmpty); XCTAssertEqual(history.pending, 0)
+            }
+        }
+    }
     func testQuickSelectionSubmitsImmediatelyAndConfirmationCannotSubmitTwice() {
         let overlay = CaptureOverlayController(catalog: .init(displays: [], windows: []), windowMode: false, requiresConfirmation: false)
         var captured: [CaptureSelection] = []; overlay.onSelect = { captured.append($0) }
