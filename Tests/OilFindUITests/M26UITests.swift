@@ -5,19 +5,16 @@ import OilFindCore
 @testable import OilFindApp
 
 final class M26UITests: XCTestCase {
-    private func resetPreviewPanel() {
+    private func resetPreviewPanel(owning panel: SearchPanel) {
+        // Remove the fixture from the responder chain before hiding Quick Look.
+        // AppKit then ends preview control through the normal owner callback,
+        // without leaving a live key window eligible to reclaim the singleton.
+        panel.close()
         guard QLPreviewPanel.sharedPreviewPanelExists(), let preview = QLPreviewPanel.shared() else { return }
-        // Teardown must cancel the native preview presentation, not just hide
-        // its window while Quick Look may still finish a queued presentation.
-        // Retain it until the close transition and controller release complete.
-        preview.isReleasedWhenClosed = false
-        preview.close()
+        preview.orderOut(nil)
         let hidden = expectation(for: NSPredicate { _, _ in !preview.isVisible }, evaluatedWith: preview)
         wait(for: [hidden], timeout: 3)
-        XCTAssertFalse(preview.isVisible, "Native preview remained visible: key=\(preview.isKeyWindow), controller=\(String(describing: preview.currentController)), dataSource=\(String(describing: preview.dataSource))")
-        // Clearing live preview content can start another native transition.
-        // Release its controller only after the previous hide has finished.
-        preview.dataSource = nil; preview.delegate = nil
+        XCTAssertFalse(preview.isVisible, "Native preview remained visible: fixtureVisible=\(panel.isVisible), key=\(preview.isKeyWindow), controller=\(String(describing: preview.currentController)), dataSource=\(String(describing: preview.dataSource))")
     }
     private func fixture() throws -> (URL, IndexStore, IndexConfig) {
         _ = NSApplication.shared
@@ -140,11 +137,7 @@ extension M26UITests {
     func testQuickLookToggleNavigationAndEscapeKeepPanel() throws {
         let (root, store, _) = try fixture(); defer { try? FileManager.default.removeItem(at: root) }
         let panel = SearchPanel(snapshot: true)
-        defer {
-            // Finish the preview transition while its controlling window is still alive.
-            resetPreviewPanel()
-            panel.close()
-        }
+        defer { resetPreviewPanel(owning: panel) }
         let controller = panel.searchController
         try controller.prepareSnapshot(state: "results", query: "row", options: .init(sort: .name, ascending: true), store: store, selection: 0)
         panel.makeKeyAndOrderFront(nil)
