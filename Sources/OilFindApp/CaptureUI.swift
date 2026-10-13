@@ -1,8 +1,9 @@
 import AppKit
 import SwiftUI
 
-private final class CaptureOverlayWindow: NSWindow {
+private final class CaptureOverlayWindow: NSPanel {
     override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
 }
 final class CaptureOverlayController {
     #if DEBUG
@@ -19,6 +20,7 @@ final class CaptureOverlayController {
     private(set) var pendingSelection: CaptureSelection?
     private let requiresConfirmation: Bool
     private var keyMonitor: Any?
+    private var focusObserver: NSObjectProtocol?
     var onSelect: ((CaptureSelection) -> Void)?, onCancel: (() -> Void)?
     init(catalog: CaptureCatalog, windowMode: Bool, requiresConfirmation: Bool = true) {
         self.catalog = catalog; self.windowMode = windowMode
@@ -27,19 +29,32 @@ final class CaptureOverlayController {
     }
     func present() {
         for display in catalog.displays {
-            let window = CaptureOverlayWindow(contentRect: CaptureGeometry.cocoa(display.frame, mainHeight: mainHeight), styleMask: .borderless, backing: .buffered, defer: false)
+            // Like the launcher, acquire keyboard focus without waiting for app activation.
+            let window = CaptureOverlayWindow(contentRect: CaptureGeometry.cocoa(display.frame, mainHeight: mainHeight), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
             window.backgroundColor = .clear; window.isOpaque = false; window.hasShadow = false; window.isRestorable = false; window.level = .screenSaver
+            window.hidesOnDeactivate = false
             window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]; window.acceptsMouseMovedEvents = true; window.isReleasedWhenClosed = false
             let view = CaptureOverlayView(frame: CGRect(origin: .zero, size: display.frame.size)); view.controller = self
-            window.contentView = view; windows.append(window); views.append(view); window.orderFrontRegardless()
+            window.contentView = view; window.makeFirstResponder(view)
+            windows.append(window); views.append(view); window.orderFrontRegardless()
         }
         let mouse = NSEvent.mouseLocation
         (windows.first(where: { $0.frame.contains(mouse) }) ?? windows.first)?.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self, let window = event.window, self.windows.contains(where: { $0 === window }) else { return event }
-            _ = self.handleKey(event)
-            return nil
+            guard let self, !self.windows.isEmpty else { return event }
+            // Windowless keys still belong to the focused capture session.
+            if let window = event.window ?? NSApp.keyWindow, !self.windows.contains(where: { $0 === window }) { return event }
+            return self.handleKey(event) ? nil : event
+        }
+        focusObserver = NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: nil, queue: .main) { [weak self] notification in
+            guard let self, let window = notification.object as? NSWindow,
+                  self.windows.contains(where: { $0 === window }) else { return }
+            // Another overlay may take focus on a different display in the same turn.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, !self.windows.isEmpty,
+                      !self.windows.contains(where: { $0.isKeyWindow }) else { return }
+                self.onCancel?()
+            }
         }
         redraw()
     }
@@ -110,13 +125,22 @@ final class CaptureOverlayController {
             view.needsDisplay = true
         }
     }
-    func close() { if let keyMonitor { NSEvent.removeMonitor(keyMonitor); self.keyMonitor = nil }; pendingSelection = nil; windows.forEach { $0.close() }; windows = []; views = [] }
+    func close() {
+        if let keyMonitor { NSEvent.removeMonitor(keyMonitor); self.keyMonitor = nil }
+        if let focusObserver { NotificationCenter.default.removeObserver(focusObserver); self.focusObserver = nil }
+        pendingSelection = nil; windows.forEach { $0.close() }; windows = []; views = []
+    }
     deinit { close() }
 }
 private final class CaptureOverlayView: NSView {
     weak var controller: CaptureOverlayController?
     var selection: CGRect?, label = L10n.text("capture.overlay.hint")
     private var controls: CaptureSelectionControls?
+    override var acceptsFirstResponder: Bool { true }
+    override func keyDown(with event: NSEvent) {
+        if controller?.handleKey(event) != true { super.keyDown(with: event) }
+    }
+    override func cancelOperation(_ sender: Any?) { controller?.onCancel?() }
     func showControls(_ visible: Bool) {
         guard visible else { controls?.isHidden = true; return }
         if controls == nil {
@@ -136,7 +160,10 @@ private final class CaptureOverlayView: NSView {
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .activeAlways, .inVisibleRect], owner: self)); super.updateTrackingAreas()
     }
     override func mouseMoved(with event: NSEvent) { controller?.move(with: event) }
-    override func mouseDown(with event: NSEvent) { controller?.down(with: event) }
+    override func mouseDown(with event: NSEvent) {
+        window?.makeKey(); window?.makeFirstResponder(self)
+        controller?.down(with: event)
+    }
     override func mouseDragged(with event: NSEvent) { controller?.move(with: event) }
     override func mouseUp(with event: NSEvent) { controller?.up(with: event) }
     override func draw(_ dirtyRect: NSRect) {
