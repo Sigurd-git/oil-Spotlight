@@ -165,7 +165,7 @@ enum Snapshot {
                 model.actualShortcut = Shortcut.symbols(keyCode: Shortcut.fallbackKeyCode, modifiers: Shortcut.fallbackModifiers)
             } else if state.hasPrefix("capture-") {
                 model.section = .capture
-                model.capture.granted = false; model.capture.status(bound: false)
+                model.capture.granted = false; model.capture.status(bound: false); model.capture.status(bound: false, copy: true)
             }
             let controller = SettingsWindowController(model: model, appExtension: appExtension, externalDrives: externalDrives)
             guard let window = controller.window, let view = window.contentView else { throw SnapshotError.failed("Cannot create settings view") }

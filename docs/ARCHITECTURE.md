@@ -366,7 +366,7 @@ Oil Find 是 MIT 许可证下的免费开源软件，搜索始终可用。应用
 
 `CaptureCoordinator` 管理捕获代次、选区蒙层、流会话、多个编辑窗口、OCR 和钉图文。`CaptureBackend` 可注入，生产实现以 ScreenCaptureKit 的 macOS 14 `SCScreenshotManager.captureImage`、`SCContentFilter` 和 `SCStream` 工作，不调用 15.2 / 26 新增捕获接口。屏幕权限只在主动执行捕获时请求。窗口按真实屏幕层次识别，跨屏选区使用 Quartz 全局坐标和最高参与缩放比例，透明保留显示器间空隙；过滤 Oil Find 整个应用以排除后来创建的蒙层、工具条与钉图窗口。
 
-`LauncherRow.action(CaptureAction)` 仅在全部范围匹配固定命令、英文及拼音键，执行时分派给协调器；不进入文件动作，也不增加文件查询对象或改索引格式。`HotKey.Identifier.search` 和 `.capture` 使用不同事件 ID，Carbon 回调必须同时匹配 signature 和 ID。截图快捷键偏好独立保存，期望绑定、实际状态、系统冲突和录制分别管理；系统偏好只读。
+`LauncherRow.action(CaptureAction)` 仅在全部范围匹配固定命令、英文及拼音键，执行时分派给协调器；不进入文件动作，也不增加文件查询对象或改索引格式。`HotKey.Identifier.search`、`.capture` 和 `.captureCopy` 使用不同事件 ID，Carbon 回调必须同时匹配 signature 和 ID。普通截图与直接复制截图的快捷键偏好独立保存，期望绑定、实际状态、系统冲突和录制分别管理；系统偏好只读。普通选区待确认时可重选，确认只分派一次；`.copyRegion` 松开鼠标后直接复制 PNG，再按原政策保存两种历史，整个路径不创建编辑器。编辑器重选打开新文档，保留旧文档和未保存标注；所有捕获与编码回调仍核对查询代次。
 
 `CaptureScrollStitcher` 只接收连续稳定帧。先采样筛选重叠候选，再验证所有行且要求唯一；保留固定边缘一次，仅追加新行。匹配不确定、动态或重复内容时不追加、不改变最后成功帧；尺寸和容量检查失败时保留已有内容。仅会话内开启屏幕流，用户负责滚动，工具不发送滚动事件。
 

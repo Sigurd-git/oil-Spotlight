@@ -99,9 +99,9 @@ export const GITHUB_URL = 'https://github.com/oil-oil/oil-find';
 export const dict: Record<Language, LandingCopy> = {
   zh: {
     captureTitle: '原生截图、标注与可编辑历史',
-    captureBody: '选区、窗口、鼠标所在屏幕和手动滚动长截图；箭头、文字、画笔、高亮、马赛克、实色遮挡、裁剪、Emoji、贴纸及素材复用。截图完成后先编辑，再选择复制、PNG / JPEG 保存或钉住。已有图片与剪贴板图片也可继续编辑。识字由用户主动执行，在本机使用 Vision。',
+    captureBody: '选区、窗口、鼠标所在屏幕和手动滚动长截图；选区可重新选择，编辑器重选保留原文档。箭头、文字、画笔、高亮、马赛克、实色遮挡、裁剪、Emoji、贴纸及素材复用。普通截图先编辑，再复制、PNG / JPEG 保存或钉住；直接截图模式松开鼠标后复制，不打开编辑器。已有图片与剪贴板图片也可继续编辑。识字由用户主动执行，在本机使用 Vision。',
     capturePrivacy: '独立截图历史默认加密保存 7 天、100 张，最多 256 MiB；可编辑历史保留打码前原图，导出文件只含合并后的像素。钉图文仅在本次运行显示。此图是合成应用快照，网站不会截取屏幕。',
-    captureShortcut: '默认 ⌘⇧4；如被系统截屏占用，在设置 → 截图查看冲突引导，搜索命令和菜单栏仍可用。首次捕获需要本人授予屏幕录制权限。',
+    captureShortcut: '⌘⇧4 选区并编辑；⌃⇧⌘4 直接复制截图。两者可分别设置；如被系统截屏占用，在设置 → 截图查看冲突引导，搜索命令和菜单栏仍可用。首次捕获需要本人授予屏幕录制权限。',
     title: 'Oil Find：文件、应用、剪贴板，一处搜索',
     description: '按 ⌘Space 打开 macOS 搜索面板。搜索文件与应用，选择性保存剪贴板文本、链接、图片和本地文件路径引用，离线计算和单位换算；网页搜索只在你提交时打开。免费版采用 MIT 许可证并始终免费；Pro 是独立的闭源付费扩展。',
     'nav.speed': '功能', 'nav.syntax': '语法', 'nav.github': 'GitHub', 'nav.download': '下载', 'nav.lang': 'EN',
@@ -173,9 +173,9 @@ export const dict: Record<Language, LandingCopy> = {
   },
   en: {
     captureTitle: 'Native screenshots, annotations and editable history',
-    captureBody: 'Capture a region, window, the display under the pointer or a manually scrolled page. Add arrows, text, pen strokes, highlights, mosaic, solid redaction, crop, Emoji, stickers and reusable materials. Edit first, then copy, save PNG / JPEG or pin. Existing images and clipboard pictures can be edited too. Vision OCR runs on this Mac only when requested.',
+    captureBody: 'Capture a region, window, the display under the pointer or a manually scrolled page. Reselect before capturing or from the editor while keeping your document. Add arrows, text, pen strokes, highlights, mosaic, solid redaction, crop, Emoji, stickers and reusable materials. Regular capture opens the editor; quick capture copies on mouse release without editing. Existing images and clipboard pictures can be edited too. Vision OCR runs on this Mac only when requested.',
     capturePrivacy: 'Independent screenshot history is encrypted, with defaults of 7 days, 100 images and 256 MiB. Editable history retains originals before redaction; exports contain flattened pixels only. Pins last for this session. This is a synthetic app snapshot; the website does not capture your screen.',
-    captureShortcut: 'Default: ⌘⇧4. If macOS uses the shortcut, Settings → Capture explains how to resolve it; search commands and the menu bar still work. The first capture requires your Screen Recording authorization.',
+    captureShortcut: '⌘⇧4 selects and edits; ⌃⇧⌘4 copies directly. Configure each separately. If macOS uses a shortcut, Settings → Capture explains how to resolve it; search commands and the menu bar still work. The first capture requires your Screen Recording authorization.',
     title: 'Oil Find: files, apps and clipboard in one search panel',
     description: '⌘Space searches files, apps, settings & clipboard. Opt-in encrypted text and image history; web opens on submit. Fork disables upstream updates.',
     'nav.speed': 'Features', 'nav.syntax': 'Syntax', 'nav.github': 'GitHub', 'nav.download': 'Download', 'nav.lang': '中文',

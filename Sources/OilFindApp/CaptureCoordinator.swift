@@ -12,12 +12,23 @@ final class CaptureCoordinator: NSObject {
     private var requestedPermission = false
     private var overlay: CaptureOverlayController?, scrollWindow: NSWindow?
     private var scrollModel: CaptureScrollModel?, stitcher: CaptureScrollStitcher?
-    private var editors: [CaptureEditorController] = [], pins: [CapturePinController] = [], textWindows: [CaptureTextController] = []
+    private(set) var editors: [CaptureEditorController] = []
+    private var pins: [CapturePinController] = [], textWindows: [CaptureTextController] = []
     private var historyWindow: NSWindow?
     private let worker = DispatchQueue(label: "com.oiloil.find.capture-render", qos: .userInitiated)
+    private let pasteboard: NSPasteboard
+    private let presentSelection: (CaptureOverlayController) -> Void
+    private let focusRestorer: (NSRunningApplication?) -> Void
     private var source: (String?, String?) = (nil, nil)
-    init(clipboard: ClipboardHistory, backend: CaptureBackend = ScreenCaptureBackend(), history: CaptureHistory = CaptureHistory(), defaults: UserDefaults = .standard) {
+    init(clipboard: ClipboardHistory, backend: CaptureBackend = ScreenCaptureBackend(), history: CaptureHistory = CaptureHistory(), defaults: UserDefaults = .standard,
+         pasteboard: NSPasteboard = .general, presentSelection: @escaping (CaptureOverlayController) -> Void = { $0.present() },
+         focusRestorer: ((NSRunningApplication?) -> Void)? = nil) {
         self.clipboard = clipboard; self.backend = backend; self.history = history
+        self.pasteboard = pasteboard; self.presentSelection = presentSelection
+        self.focusRestorer = focusRestorer ?? { application in
+            guard let application, !application.isTerminated, application.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return }
+            application.activate(options: [])
+        }
         settings = CaptureSettingsModel(history: history, defaults: defaults)
         super.init()
         settings.onRetry = { [weak self] in self?.run(.region) }
@@ -47,6 +58,7 @@ final class CaptureCoordinator: NSObject {
         }
         cancel(); let token = generation
         let front = NSWorkspace.shared.frontmostApplication
+        let directCopy = action == .copyRegion
         source = (front?.bundleIdentifier, front?.localizedName)
         hideSearch?()
         if !backend.hasPermission {
@@ -66,9 +78,12 @@ final class CaptureCoordinator: NSObject {
                     guard let display = catalog.displays.first(where: { $0.frame.contains(quartz) }) else { return }
                     self.capture(.region(display.frame), action: action, token: token)
                 } else {
-                    let overlay = CaptureOverlayController(catalog: catalog, windowMode: action == .window)
+                    let overlay = CaptureOverlayController(catalog: catalog, windowMode: action == .window, requiresConfirmation: !directCopy)
                     self.overlay = overlay
-                    overlay.onCancel = { [weak self] in self?.cancel() }
+                    overlay.onCancel = { [weak self] in
+                        guard let self, token == self.generation else { return }; self.cancel()
+                        if directCopy { self.restoreFocus(front) }
+                    }
                     overlay.onSelect = { [weak self] selection in
                         guard let self, token == self.generation else { return }
                         self.overlay?.close(); self.overlay = nil
@@ -76,17 +91,20 @@ final class CaptureCoordinator: NSObject {
                             let rect: CGRect?
                             switch selection { case .region(let region): rect = region; case .window(let id): rect = catalog.windows.first { $0.id == id }?.frame }
                             if let rect { self.startScroll(rect, token: token) }
-                        } else { self.capture(selection, action: action, token: token) }
+                        } else { self.capture(selection, action: action, token: token, restoreFocus: directCopy ? front : nil) }
                     }
-                    overlay.present()
+                    self.presentSelection(overlay)
                 }
             }
         }
     }
-    private func capture(_ selection: CaptureSelection, action: CaptureAction, token: Int) {
+    private func capture(_ selection: CaptureSelection, action: CaptureAction, token: Int, restoreFocus application: NSRunningApplication? = nil) {
         backend.capture(selection) { [weak self] result in
             guard let self, self.generation == token else { return }
-            switch result { case .success(let image): self.openImage(image, token: token); case .failure(let error): self.showError(error) }
+            switch result {
+            case .success(let image): self.openImage(image, token: token, directCopy: action == .copyRegion, restoreFocus: application)
+            case .failure(let error): self.showError(error)
+            }
         }
     }
     private func startScroll(_ rect: CGRect, token: Int) {
@@ -128,26 +146,34 @@ final class CaptureCoordinator: NSObject {
             if case .failure(let error) = result { self?.cancel(); self?.showError(error) }
         })
     }
-    private func openImage(_ image: CGImage, token: Int) {
+    private func openImage(_ image: CGImage, token: Int, directCopy: Bool = false, restoreFocus application: NSRunningApplication? = nil) {
         let source = self.source
         worker.async { [weak self] in
             let result = Result { CaptureDocument(original: try CaptureRaster(image: image), sourceBundleID: source.0, sourceName: source.1) }
             DispatchQueue.main.async {
                 guard let self, self.generation == token else { return }
                 switch result {
-                case .success(let document): self.open(document)
+                case .success(let document):
+                    if directCopy {
+                        guard self.copyImage(document.original.data) else { self.showErrorMessage(L10n.text("capture.copy.failed")); return }
+                        self.restoreFocus(application)
+                        self.history.save(document) { success in
+                            guard self.generation == token else { return }
+                            if !success { self.showErrorMessage(L10n.text("capture.copy.saveError")) }
+                        }
+                    } else { self.open(document) }
                 case .failure(let error):
                     guard case .capacity? = error as? CaptureFailure else { self.showError(error); return }
                     // Retain the successfully captured pixels while the user
                     // decides how to handle an oversized lossless encoding.
                     let alert = NSAlert(); alert.messageText = L10n.text("capture.error.capacity"); alert.informativeText = L10n.text("capture.reduce.hint")
-                    alert.addButton(withTitle: L10n.text("capture.reduce.edit")); alert.addButton(withTitle: L10n.text("action.cancel"))
+                    alert.addButton(withTitle: L10n.text(directCopy ? "capture.reduce.copy" : "capture.reduce.edit")); alert.addButton(withTitle: L10n.text("action.cancel"))
                     guard alert.runModal() == .alertFirstButtonReturn else { return }
                     self.worker.async {
                         let reduced = Result { try CaptureRenderer.reduced(image) }
                         DispatchQueue.main.async {
                             guard self.generation == token else { return }
-                            switch reduced { case .success(let value): self.openImage(value, token: token); case .failure(let error): self.showError(error) }
+                            switch reduced { case .success(let value): self.openImage(value, token: token, directCopy: directCopy, restoreFocus: application); case .failure(let error): self.showError(error) }
                         }
                     }
                 }
@@ -162,6 +188,7 @@ final class CaptureCoordinator: NSObject {
         let model = editor.model
         editor.onClose = { [weak self, weak editor] in self?.editors.removeAll { $0 === editor } }
         model.onOpen = { [weak self] in self?.openFile() }
+        model.onReselect = { [weak self] in self?.run(.region) }
         model.onCopy = { [weak self, weak model] in if let model { self?.produce(model, output: .copy) } }
         model.onSave = { [weak self, weak editor] in if let editor { self?.saveFile(editor) } }
         model.onPin = { [weak self, weak model] in if let model { self?.produce(model, output: .pin) } }
@@ -227,9 +254,12 @@ final class CaptureCoordinator: NSObject {
     }
     @discardableResult private func copyImage(_ data: Data) -> Bool {
         let item = NSPasteboardItem(); item.setData(data, forType: .png); item.setData(Data([1]), forType: ClipboardSystemPasteboard.ownCopyType)
-        NSPasteboard.general.clearContents()
-        guard NSPasteboard.general.writeObjects([item]) else { return false }
+        pasteboard.clearContents()
+        guard pasteboard.writeObjects([item]) else { return false }
         clipboard.recordGenerated(ClipboardImage(data: data).map(ClipboardContent.image)); return true
+    }
+    private func restoreFocus(_ application: NSRunningApplication?) {
+        focusRestorer(application)
     }
     private func copyText(_ text: String) {
         let item = NSPasteboardItem(); item.setString(text, forType: .string); item.setData(Data([1]), forType: ClipboardSystemPasteboard.ownCopyType)
