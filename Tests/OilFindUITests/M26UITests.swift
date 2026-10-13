@@ -12,9 +12,16 @@ final class M26UITests: XCTestCase {
         panel.close()
         guard QLPreviewPanel.sharedPreviewPanelExists(), let preview = QLPreviewPanel.shared() else { return }
         preview.orderOut(nil)
-        let hidden = expectation(for: NSPredicate { _, _ in !preview.isVisible }, evaluatedWith: preview)
+        // Observe the active shared panel, as QuickLook.isVisible does, rather
+        // than assuming a retained native window remains the current singleton.
+        let hidden = expectation(for: NSPredicate { _, _ in
+            !QLPreviewPanel.sharedPreviewPanelExists() || !QLPreviewPanel.shared().isVisible
+        }, evaluatedWith: nil)
         wait(for: [hidden], timeout: 3)
-        XCTAssertFalse(preview.isVisible, "Native preview remained visible: fixtureVisible=\(panel.isVisible), key=\(preview.isKeyWindow), controller=\(String(describing: preview.currentController)), dataSource=\(String(describing: preview.dataSource))")
+        if QLPreviewPanel.sharedPreviewPanelExists(), let current = QLPreviewPanel.shared() {
+            print("Quick Look teardown: samePanel=\(preview === current), retainedVisible=\(preview.isVisible), currentVisible=\(current.isVisible), fixtureVisible=\(panel.isVisible), controller=\(String(describing: current.currentController))")
+            XCTAssertFalse(current.isVisible, "Current native preview remained visible: key=\(current.isKeyWindow), controller=\(String(describing: current.currentController)), dataSource=\(String(describing: current.dataSource))")
+        }
     }
     private func fixture() throws -> (URL, IndexStore, IndexConfig) {
         _ = NSApplication.shared
