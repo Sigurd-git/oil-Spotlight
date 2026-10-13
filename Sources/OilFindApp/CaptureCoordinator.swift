@@ -242,7 +242,9 @@ final class CaptureCoordinator: NSObject {
         formats.addItems(withTitles: ["PNG", "JPEG"])
         let formatControl = CaptureExportFormatControl(panel: panel)
         formats.target = formatControl; formats.action = #selector(CaptureExportFormatControl.choose(_:))
-        panel.allowedContentTypes = [.png]; panel.nameFieldStringValue = editor.model.document.title + ".png"
+        let title = editor.model.document.title
+        let stem = UTType(filenameExtension: (title as NSString).pathExtension)?.conforms(to: .image) == true ? (title as NSString).deletingPathExtension : title
+        panel.allowedContentTypes = [.png]; panel.nameFieldStringValue = stem + ".png"
         panel.accessoryView = formats
         if let path = UserDefaults.standard.string(forKey: "captureExportDirectory") { panel.directoryURL = URL(fileURLWithPath: path) }
         panel.beginSheetModal(for: window) { [weak self, weak editor, formatControl] response in
