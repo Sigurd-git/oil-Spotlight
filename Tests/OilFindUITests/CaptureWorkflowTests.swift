@@ -121,6 +121,33 @@ final class CaptureWorkflowTests: XCTestCase {
         XCTAssertTrue(view.acceptsFirstMouse(for: nil))
         XCTAssertTrue(view.needsPanelToBecomeKey)
     }
+    func testWindowHighlightRetainsMouseSurfaceBeforeAndAfterSelection() throws {
+        let height = try XCTUnwrap(NSScreen.screens.first).frame.height
+        let bounds = CaptureGeometry.quartz(CGRect(x: 140, y: 240, width: 220, height: 160), mainHeight: height)
+        let (overlay, windows) = try presentOverlay(candidates: [.init(id: 7, frame: bounds, title: "Synthetic", owner: "QA")])
+        let window = try XCTUnwrap(windows.first), view = try XCTUnwrap(window.contentView)
+        let move = try XCTUnwrap(NSEvent.mouseEvent(with: .mouseMoved, location: CGPoint(x: 100, y: 100), modifierFlags: [], timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 0, pressure: 0))
+        overlay.handleKey(try key(49)); overlay.move(with: move)
+        XCTAssertNotNil(overlay.selectedRect)
+        for pending in [false, true] {
+            if pending { overlay.select(.window(7)) }
+            let bitmap = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+            let image = try XCTUnwrap(bitmap.cgImage), pixels = try CapturePixels(image)
+            let x = pixels.width / 2, y = pixels.height / 2
+            let alpha = pixels.bytes[(y * pixels.width + x) * 4 + 3]
+            // AppKit must not expose a fully transparent hole to WindowServer.
+            // Directly sending mouse events bypasses this native hit testing.
+            XCTAssertGreaterThan(alpha, 0, "Window highlight lets clicks reach the underlying app (pending=\(pending))")
+            XCTAssertLessThan(alpha, 20, "The selected window should remain visually clear")
+            // Query WindowServer's native mouse-down target without moving the
+            // pointer or injecting input into the foreground application.
+            view.displayIfNeeded(); window.displayIfNeeded()
+            let point = window.convertPoint(toScreen: CGPoint(x: view.bounds.midX, y: view.bounds.midY))
+            waitFor { NSWindow.windowNumber(at: point, belowWindowWithWindowNumber: 0) == window.windowNumber }
+        }
+    }
     func testReactivatingTheForegroundApplicationKeepsWindowSelectionPending() throws {
         let application = try otherApplication()
         let (overlay, _) = try presentOverlay(frontmostProcessID: { application.processIdentifier })
@@ -169,6 +196,45 @@ final class CaptureWorkflowTests: XCTestCase {
             XCTAssertEqual(selections, [.window(7)])
             XCTAssertFalse(window.isVisible)
             XCTAssertNil(overlay.pendingSelection)
+        }
+    }
+    func testWindowMouseEventsDeliverPixelsToEditorOrClipboard() throws {
+        _ = NSApplication.shared
+        let height = try XCTUnwrap(NSScreen.screens.first).frame.height
+        let display = CaptureDisplay(id: 1, frame: CaptureGeometry.quartz(CGRect(x: 100, y: 200, width: 320, height: 240), mainHeight: height), scale: 1)
+        let catalog = CaptureCatalog(displays: [display], windows: [.init(id: 7, frame: display.frame, title: "Synthetic", owner: "QA")])
+        for action in [CaptureAction.region, .copyRegion] {
+            let backend = Backend(), board = pasteboard(), history = try history()
+            let previous = Set(NSApp.windows.map(\.windowNumber))
+            let coordinator = CaptureCoordinator(clipboard: ClipboardHistory(snapshot: true), backend: backend, history: history,
+                defaults: defaults(), pasteboard: board, focusRestorer: { _ in })
+            var document: CaptureDocument?
+            coordinator.onDocument = { document = $0 }
+            defer { coordinator.cancel() }
+            coordinator.run(action); backend.catalogReply?(.success(catalog))
+            let window = try XCTUnwrap(NSApp.windows.first { !previous.contains($0.windowNumber) && $0.isVisible })
+            NSApp.sendEvent(try key(49))
+            for type in [NSEvent.EventType.mouseMoved, .leftMouseDown, .leftMouseUp] {
+                let event = try XCTUnwrap(NSEvent.mouseEvent(with: type, location: CGPoint(x: 100, y: 100), modifierFlags: [], timestamp: 0,
+                    windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+                NSApp.sendEvent(event)
+            }
+            if action == .region {
+                XCTAssertTrue(backend.selections.isEmpty)
+                NSApp.sendEvent(try key(36))
+            }
+            XCTAssertEqual(backend.selections, [.window(7)])
+            XCTAssertFalse(window.isVisible)
+            backend.captureReply?(.success(try image()))
+            if action == .region {
+                waitFor { document != nil }
+                XCTAssertEqual(document?.original.width, 48)
+                XCTAssertNil(board.data(forType: .png)); XCTAssertTrue(history.entries.isEmpty)
+            } else {
+                waitFor { board.data(forType: .png) != nil && history.pending == 0 && history.entries.count == 1 }
+                XCTAssertNil(document); XCTAssertTrue(coordinator.editors.isEmpty)
+                XCTAssertEqual(try CaptureRaster(data: XCTUnwrap(board.data(forType: .png))).width, 48)
+            }
         }
     }
     private func otherApplication() throws -> NSRunningApplication {
