@@ -59,6 +59,7 @@ final class CaptureOverlayController {
             DispatchQueue.main.async { [weak self] in
                 guard let self, !self.windows.isEmpty,
                       !self.windows.contains(where: { $0.isKeyWindow }) else { return }
+                AppLog.logger.info("capture overlay cancelled reason=key-focus")
                 self.onCancel?()
             }
         }
@@ -71,6 +72,7 @@ final class CaptureOverlayController {
             guard processID == self.frontmostProcessID(), processID != self.activeProcessID else { return }
             self.activeProcessID = processID
             guard processID != ProcessInfo.processInfo.processIdentifier else { return }
+            AppLog.logger.info("capture overlay cancelled reason=application-switch")
             self.onCancel?()
         }
         redraw()
@@ -188,7 +190,11 @@ private final class CaptureOverlayView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         NSColor.black.withAlphaComponent(0.22).setFill(); bounds.fill()
         if let selection, let context = NSGraphicsContext.current?.cgContext {
-            context.saveGState(); context.setBlendMode(.clear); context.fill(selection); context.restoreGState()
+            // Fully transparent pixels in a nonopaque window let native clicks
+            // through to the app below, cancelling capture before mouseUp.
+            context.saveGState(); context.setBlendMode(.copy)
+            context.setFillColor(NSColor.black.withAlphaComponent(0.02).cgColor)
+            context.fill(selection); context.restoreGState()
             NSColor.controlAccentColor.setStroke(); let path = NSBezierPath(rect: selection); path.lineWidth = 2; path.stroke()
         }
         let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 16, weight: .medium), .foregroundColor: NSColor.white, .backgroundColor: NSColor.black.withAlphaComponent(0.7)]

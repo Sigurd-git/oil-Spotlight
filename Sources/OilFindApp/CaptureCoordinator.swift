@@ -57,6 +57,7 @@ final class CaptureCoordinator: NSObject {
         default: break
         }
         cancel(); let token = generation
+        AppLog.logger.info("capture started action=\(action.rawValue, privacy: .public) session=\(token, privacy: .public)")
         let front = NSWorkspace.shared.frontmostApplication
         let directCopy = action == .copyRegion
         source = (front?.bundleIdentifier, front?.localizedName)
@@ -87,6 +88,7 @@ final class CaptureCoordinator: NSObject {
                     }
                     overlay.onSelect = { [weak self] selection in
                         guard let self, token == self.generation else { return }
+                        AppLog.logger.info("capture selection confirmed session=\(token, privacy: .public)")
                         self.overlay?.close(); self.overlay = nil
                         if action == .scroll {
                             let rect: CGRect?
@@ -103,8 +105,12 @@ final class CaptureCoordinator: NSObject {
         backend.capture(selection) { [weak self] result in
             guard let self, self.generation == token else { return }
             switch result {
-            case .success(let image): self.openImage(image, token: token, directCopy: action == .copyRegion, restoreFocus: application)
-            case .failure(let error): self.showError(error)
+            case .success(let image):
+                AppLog.logger.info("capture pixels received session=\(token, privacy: .public) width=\(image.width, privacy: .public) height=\(image.height, privacy: .public)")
+                self.openImage(image, token: token, directCopy: action == .copyRegion, restoreFocus: application)
+            case .failure(let error):
+                AppLog.logger.error("capture backend failed session=\(token, privacy: .public) code=\((error as NSError).code, privacy: .public)")
+                self.showError(error)
             }
         }
     }
@@ -157,12 +163,16 @@ final class CaptureCoordinator: NSObject {
                 case .success(let document):
                     if directCopy {
                         guard self.copyImage(document.original.data) else { self.showErrorMessage(L10n.text("capture.copy.failed")); return }
+                        AppLog.logger.info("capture delivered destination=clipboard session=\(token, privacy: .public)")
                         self.restoreFocus(application)
                         self.history.save(document) { success in
                             guard self.generation == token else { return }
                             if !success { self.showErrorMessage(L10n.text("capture.copy.saveError")) }
                         }
-                    } else { self.open(document) }
+                    } else {
+                        self.open(document)
+                        AppLog.logger.info("capture delivered destination=editor session=\(token, privacy: .public)")
+                    }
                 case .failure(let error):
                     guard case .capacity? = error as? CaptureFailure else { self.showError(error); return }
                     // Retain the successfully captured pixels while the user
