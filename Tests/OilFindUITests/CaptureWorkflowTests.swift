@@ -96,12 +96,14 @@ final class CaptureWorkflowTests: XCTestCase {
     private func key(_ code: UInt16, repeatKey: Bool = false) throws -> NSEvent {
         try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: repeatKey, keyCode: code))
     }
-    private func presentOverlay(displayCount: Int = 1) throws -> (CaptureOverlayController, [NSWindow]) {
+    private func presentOverlay(displayCount: Int = 1, candidates: [CaptureWindow] = [], requiresConfirmation: Bool = true,
+                                frontmostProcessID: @escaping () -> pid_t? = { NSWorkspace.shared.frontmostApplication?.processIdentifier }) throws -> (CaptureOverlayController, [NSWindow]) {
         _ = NSApplication.shared
         let height = try XCTUnwrap(NSScreen.screens.first).frame.height
         let existing = Set(NSApp.windows.map(\.windowNumber))
         let displays = (0..<displayCount).map { CaptureDisplay(id: UInt32($0 + 1), frame: CaptureGeometry.quartz(CGRect(x: 100 + $0 * 350, y: 200, width: 320, height: 240), mainHeight: height), scale: 1) }
-        let overlay = CaptureOverlayController(catalog: .init(displays: displays, windows: []), windowMode: false)
+        let overlay = CaptureOverlayController(catalog: .init(displays: displays, windows: candidates), windowMode: false,
+                                               requiresConfirmation: requiresConfirmation, frontmostProcessID: frontmostProcessID)
         addTeardownBlock { overlay.close() }
         overlay.present()
         let windows = NSApp.windows.filter { !existing.contains($0.windowNumber) && $0.isVisible }
@@ -113,6 +115,66 @@ final class CaptureWorkflowTests: XCTestCase {
         XCTAssertTrue(window is NSPanel)
         XCTAssertTrue(window.styleMask.contains(.nonactivatingPanel))
         XCTAssertTrue(window.firstResponder === window.contentView)
+    }
+    func testOverlayAcceptsTheFirstMouseClickWithoutActivatingApplication() throws {
+        let (_, windows) = try presentOverlay(), view = try XCTUnwrap(windows.first?.contentView)
+        XCTAssertTrue(view.acceptsFirstMouse(for: nil))
+        XCTAssertTrue(view.needsPanelToBecomeKey)
+    }
+    func testReactivatingTheForegroundApplicationKeepsWindowSelectionPending() throws {
+        let application = try otherApplication()
+        let (overlay, _) = try presentOverlay(frontmostProcessID: { application.processIdentifier })
+        var cancellations = 0
+        overlay.onCancel = { cancellations += 1; overlay.close() }
+        overlay.handleKey(try key(49)); overlay.select(.window(7))
+        NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.didActivateApplicationNotification, object: nil,
+            userInfo: [NSWorkspace.applicationUserInfoKey: application])
+        XCTAssertEqual(cancellations, 0)
+        XCTAssertEqual(overlay.pendingSelection, .window(7))
+    }
+    func testStaleApplicationActivationDoesNotCancelFocusedCapture() throws {
+        let (overlay, _) = try presentOverlay(frontmostProcessID: { ProcessInfo.processInfo.processIdentifier })
+        let application = try otherApplication()
+        var cancellations = 0
+        overlay.onCancel = { cancellations += 1; overlay.close() }
+        NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.didActivateApplicationNotification, object: nil,
+            userInfo: [NSWorkspace.applicationUserInfoKey: application])
+        XCTAssertEqual(cancellations, 0)
+    }
+    func testWindowClickAfterSpaceSurvivesRepeatedActivationAndCapturesOnlyOnce() throws {
+        let application = try otherApplication()
+        let bounds = CaptureGeometry.quartz(CGRect(x: 100, y: 200, width: 320, height: 240), mainHeight: try XCTUnwrap(NSScreen.screens.first).frame.height)
+        for requiresConfirmation in [true, false] {
+            let (overlay, windows) = try presentOverlay(candidates: [.init(id: 7, frame: bounds, title: "Synthetic", owner: "QA")],
+                requiresConfirmation: requiresConfirmation, frontmostProcessID: { application.processIdentifier })
+            let window = try XCTUnwrap(windows.first)
+            var selections: [CaptureSelection] = [], cancellations = 0
+            overlay.onSelect = { selections.append($0); overlay.close() }
+            overlay.onCancel = { cancellations += 1; overlay.close() }
+            NSApp.sendEvent(try key(49))
+            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                let event = try XCTUnwrap(NSEvent.mouseEvent(with: type, location: CGPoint(x: 80, y: 100), modifierFlags: [], timestamp: 0,
+                    windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+                NSApp.sendEvent(event)
+                NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.didActivateApplicationNotification, object: nil,
+                    userInfo: [NSWorkspace.applicationUserInfoKey: application])
+            }
+            XCTAssertEqual(cancellations, 0)
+            if requiresConfirmation {
+                XCTAssertEqual(overlay.pendingSelection, .window(7)); XCTAssertTrue(window.isVisible)
+                XCTAssertTrue(selections.isEmpty)
+                NSApp.sendEvent(try key(36))
+            }
+            overlay.confirmSelection()
+            XCTAssertEqual(selections, [.window(7)])
+            XCTAssertFalse(window.isVisible)
+            XCTAssertNil(overlay.pendingSelection)
+        }
+    }
+    private func otherApplication() throws -> NSRunningApplication {
+        try XCTUnwrap(NSWorkspace.shared.runningApplications.first {
+            $0.processIdentifier != ProcessInfo.processInfo.processIdentifier && $0.activationPolicy != .prohibited
+        })
     }
     func testOverlayResponderCancelsAfterSpace() throws {
         let (overlay, windows) = try presentOverlay(), window = try XCTUnwrap(windows.first)
@@ -167,17 +229,35 @@ final class CaptureWorkflowTests: XCTestCase {
         XCTAssertEqual(receiver.keys, [53])
     }
     func testOtherApplicationActivationCancelsEvenWhileOverlayStillHasKeyStatus() throws {
-        let (overlay, windows) = try presentOverlay(), window = try XCTUnwrap(windows.first)
+        var foregroundProcessID = ProcessInfo.processInfo.processIdentifier
+        let (overlay, windows) = try presentOverlay(frontmostProcessID: { foregroundProcessID }), window = try XCTUnwrap(windows.first)
         var cancellations = 0; overlay.onCancel = { cancellations += 1; overlay.close() }
         window.makeKey(); XCTAssertTrue(window.isKeyWindow)
         let center = NSWorkspace.shared.notificationCenter
         center.post(name: NSWorkspace.didActivateApplicationNotification, object: nil, userInfo: [NSWorkspace.applicationUserInfoKey: NSRunningApplication.current])
         XCTAssertEqual(cancellations, 0)
-        let application = try XCTUnwrap(NSWorkspace.shared.runningApplications.first { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier && $0.activationPolicy != .prohibited })
+        let application = try otherApplication()
+        foregroundProcessID = application.processIdentifier
         center.post(name: NSWorkspace.didActivateApplicationNotification, object: nil, userInfo: [NSWorkspace.applicationUserInfoKey: application])
         XCTAssertEqual(cancellations, 1)
         XCTAssertFalse(window.isVisible)
         center.post(name: NSWorkspace.didActivateApplicationNotification, object: nil, userInfo: [NSWorkspace.applicationUserInfoKey: application])
+        XCTAssertEqual(cancellations, 1)
+    }
+    func testReturningToOriginalApplicationAfterOwnActivationCancelsCapture() throws {
+        let application = try otherApplication()
+        var foregroundProcessID = application.processIdentifier
+        let (overlay, _) = try presentOverlay(frontmostProcessID: { foregroundProcessID })
+        var cancellations = 0
+        overlay.onCancel = { cancellations += 1; overlay.close() }
+        let center = NSWorkspace.shared.notificationCenter
+        foregroundProcessID = ProcessInfo.processInfo.processIdentifier
+        center.post(name: NSWorkspace.didActivateApplicationNotification, object: nil,
+            userInfo: [NSWorkspace.applicationUserInfoKey: NSRunningApplication.current])
+        XCTAssertEqual(cancellations, 0)
+        foregroundProcessID = application.processIdentifier
+        center.post(name: NSWorkspace.didActivateApplicationNotification, object: nil,
+            userInfo: [NSWorkspace.applicationUserInfoKey: application])
         XCTAssertEqual(cancellations, 1)
     }
     func testCaptureMonitorPassesUnhandledKeysToTheResponder() throws {

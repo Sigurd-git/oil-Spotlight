@@ -22,13 +22,18 @@ final class CaptureOverlayController {
     private var keyMonitor: Any?
     private var focusObserver: NSObjectProtocol?
     private var activationObserver: NSObjectProtocol?
+    private let frontmostProcessID: () -> pid_t?
+    private var activeProcessID: pid_t?
     var onSelect: ((CaptureSelection) -> Void)?, onCancel: (() -> Void)?
-    init(catalog: CaptureCatalog, windowMode: Bool, requiresConfirmation: Bool = true) {
+    init(catalog: CaptureCatalog, windowMode: Bool, requiresConfirmation: Bool = true,
+         frontmostProcessID: @escaping () -> pid_t? = { NSWorkspace.shared.frontmostApplication?.processIdentifier }) {
         self.catalog = catalog; self.windowMode = windowMode
         self.requiresConfirmation = requiresConfirmation
+        self.frontmostProcessID = frontmostProcessID
         mainHeight = NSScreen.screens.first?.frame.height ?? CGDisplayBounds(CGMainDisplayID()).height
     }
     func present() {
+        activeProcessID = frontmostProcessID()
         for display in catalog.displays {
             // Like the launcher, acquire keyboard focus without waiting for app activation.
             let window = CaptureOverlayWindow(contentRect: CaptureGeometry.cocoa(display.frame, mainHeight: mainHeight), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -59,8 +64,13 @@ final class CaptureOverlayController {
         }
         activationObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] notification in
             guard let self, !self.windows.isEmpty,
-                  let application = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
-                  application.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return }
+                  let application = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+            let processID = application.processIdentifier
+            // Nonactivating panels leave the original app in front. Repeated or
+            // late activation notifications are not a switch away from capture.
+            guard processID == self.frontmostProcessID(), processID != self.activeProcessID else { return }
+            self.activeProcessID = processID
+            guard processID != ProcessInfo.processInfo.processIdentifier else { return }
             self.onCancel?()
         }
         redraw()
@@ -136,7 +146,7 @@ final class CaptureOverlayController {
         if let keyMonitor { NSEvent.removeMonitor(keyMonitor); self.keyMonitor = nil }
         if let focusObserver { NotificationCenter.default.removeObserver(focusObserver); self.focusObserver = nil }
         if let activationObserver { NSWorkspace.shared.notificationCenter.removeObserver(activationObserver); self.activationObserver = nil }
-        pendingSelection = nil; windows.forEach { $0.close() }; windows = []; views = []
+        activeProcessID = nil; pendingSelection = nil; windows.forEach { $0.close() }; windows = []; views = []
     }
     deinit { close() }
 }
@@ -145,6 +155,7 @@ private final class CaptureOverlayView: NSView {
     var selection: CGRect?, label = L10n.text("capture.overlay.hint")
     private var controls: CaptureSelectionControls?
     override var acceptsFirstResponder: Bool { true }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func keyDown(with event: NSEvent) {
         if controller?.handleKey(event) != true { super.keyDown(with: event) }
     }
