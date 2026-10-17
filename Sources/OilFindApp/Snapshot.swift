@@ -10,7 +10,7 @@ enum SnapshotError: Error, CustomStringConvertible {
 #if DEBUG
 enum Snapshot {
     static func run(_ arguments: [String], appExtension: ApplicationExtension? = nil, externalDrives: ExternalDriveCatalog = ExternalDriveCatalog()) throws {
-        let allowed = Set(["--snapshot", "--state", "--query", "--filter", "--sort", "--select", "--appearance", "--db", "--settings-scroll", "--settings-section", "--language", "--coverage", "--update-notes", "--update-scroll"])
+        let allowed = Set(["--snapshot", "--state", "--query", "--filter", "--sort", "--select", "--appearance", "--db", "--settings-scroll", "--settings-section", "--language", "--coverage", "--update-notes", "--update-scroll", "--topic-index"])
         var values: [String: String] = [:], i = 0, granted = false
         while i < arguments.count {
             if arguments[i] == "--granted" { granted = true; i += 1; continue }
@@ -42,7 +42,7 @@ enum Snapshot {
         let sorts: [String: SortKey] = ["relevance": .relevance, "name": .name, "modified": .modified, "size": .size]
         guard let key = sorts[sort], let selection = Int(values["--select"] ?? "0"), selection >= 0 else { throw SnapshotError.failed("Invalid sort or selected row") }
         var store: IndexStore?
-        let needsIndex = !launcherStates.contains(state) && !settingsStates.contains(state) && !captureStates.contains(state) && !state.hasPrefix("update-") && !["indexing", "welcome", "menu"].contains(state)
+        let needsIndex = filter != "additional" && !launcherStates.contains(state) && !settingsStates.contains(state) && !captureStates.contains(state) && !state.hasPrefix("update-") && !["indexing", "welcome", "menu"].contains(state)
         if needsIndex || (state == "settings" && values["--db"] != nil) {
             let fallback = NSHomeDirectory() + "/Library/Caches/Oil Find/cli-index.oilfind"
             let defaultPath = FileManager.default.fileExists(atPath: AppDelegate.dbURL.path) ? AppDelegate.dbURL.path : fallback
@@ -141,8 +141,24 @@ enum Snapshot {
             try write(view: view, appearance: window.appearance, output: output)
             return
         }
+        // Snapshot preferences and provider detection never depend on the user's installations.
+        let topicSuite = "oilfind-topic-snapshot-" + UUID().uuidString
+        guard let topicDefaults = UserDefaults(suiteName: topicSuite) else { throw SnapshotError.failed("Cannot create snapshot preferences") }
+        var topicPreferences: [String: Any] = ["aiTopicsEnabled": true]
+        for provider in AITopicProvider.allCases { topicPreferences["aiTopicsProvider.\(provider.rawValue).enabled"] = true }
+        topicDefaults.setVolatileDomain(topicPreferences, forName: topicSuite)
+        let topicURL = values["--topic-index"].map { URL(fileURLWithPath: NSString(string: $0).expandingTildeInPath) }
+        let topics = AITopicManager(defaults: topicDefaults, url: topicURL, detectProviders: { Set(AITopicProvider.allCases) })
+        defer { topics.stop() }
+        let topicSearch: AdditionalSearchProvider?
+        if let topicURL {
+            // Only an explicit index can supply imported conversations; never open the default index.
+            _ = try AITopicIndex(url: topicURL, readOnly: true)
+            topics.installSnapshot(url: topicURL)
+            topicSearch = AITopicSearchProvider(manager: topics)
+        } else { topicSearch = filter == "additional" ? SnapshotTopicProvider() : nil }
         if settingsStates.contains(state) {
-            let model = SettingsModel(snapshotStore: store, snapshot: true)
+            let model = SettingsModel(snapshotStore: store, snapshot: true, topics: topics)
             // Existing expanded/scrolling coverage snapshots must open the index tab.
             model.section = settingsSection ?? (values["--coverage"] == "sample" || values["--settings-scroll"] != nil ? .index : .general)
             if values["--coverage"] == "sample" {
@@ -194,11 +210,12 @@ enum Snapshot {
         panel.appearance = NSAppearance(named: appearance == "dark" ? .darkAqua : .aqua)
         let controller = panel.searchController
         controller.supplementaryProvider = appExtension?.supplementarySearchProvider
+        controller.additionalSearchProvider = topicSearch
         if launcherStates.contains(state) {
             let fixture = try launcherFixture(state: state, query: values["--query"])
             try controller.prepareLauncherSnapshot(fixture.snapshot, clipboardEntries: fixture.clipboard, selection: selection)
         } else {
-            try controller.prepareSnapshot(state: state, query: values["--query"] ?? "readme", options: SearchOptions(sort: key, ascending: key == .name, kind: kind == 0 ? nil : UInt8(kind)), store: store, selection: selection, additionalSources: externalDrives.searchSources() + (appExtension?.searchSources() ?? []))
+            try controller.prepareSnapshot(state: state, query: values["--query"] ?? (filter == "additional" ? "" : "readme"), options: SearchOptions(sort: key, ascending: key == .name, kind: kind == 0 || filter == "additional" ? nil : UInt8(kind)), store: store, selection: selection, additionalSources: filter == "additional" ? [] : externalDrives.searchSources() + (appExtension?.searchSources() ?? []), additionalOnly: filter == "additional")
         }
         let view = controller.view
         view.frame = NSRect(origin: .zero, size: Theme.panelSize)
@@ -312,6 +329,31 @@ enum Snapshot {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try png.write(to: url, options: .atomic)
         print("snapshot: \(url.path) \(width)x\(height)")
+    }
+}
+
+// Value-only topic rows keep automated captures independent of local conversation history.
+private final class SnapshotTopicProvider: AdditionalSearchProvider {
+    let isEnabled = true
+    var title: String { L10n.text("topicsTitle") }
+    var placeholder: String { L10n.text("topicsPlaceholder") }
+    var onChange: (() -> Void)?
+    func visibilityChanged(_ visible: Bool) { }
+    func prepareSearch(_ query: Query, isCancelled: @escaping () -> Bool) -> () throws -> [AdditionalSearchItem] {
+        let titles = L10n.chinese ? ["搜索界面设计（演示）", "本地索引方案（演示）", "搜索快捷键检查（演示）"]
+            : ["Search interface design (demo)", "Local index planning (demo)", "Search shortcut review (demo)"]
+        let detail = L10n.chinese ? "合成会话内容，仅用于界面快照。" : "Synthetic conversation content for UI snapshots."
+        let icon = Theme.symbol("bubble.left.and.bubble.right", size: 24, weight: .regular)
+        let items = zip(AITopicProvider.allCases, titles).enumerated().map { index, entry in
+            AdditionalSearchItem(id: "snapshot-topic-\(index)", title: entry.1, detail: detail,
+                location: entry.0.name, modified: Date(timeIntervalSince1970: 1_791_763_200 - Double(index) * 3600),
+                icon: icon, availabilityScope: entry.0.rawValue, actions: [])
+        }
+        let terms = query.raw.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+        return {
+            guard !isCancelled() else { return [] }
+            return items.filter { item in terms.allSatisfy { (item.title + " " + item.detail + " " + item.location).localizedCaseInsensitiveContains($0) } }
+        }
     }
 }
 

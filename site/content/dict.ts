@@ -103,7 +103,7 @@ export const dict: Record<Language, LandingCopy> = {
     capturePrivacy: '独立截图历史默认加密保存 7 天、100 张，最多 256 MiB；可编辑历史保留打码前原图，导出文件只含合并后的像素。钉图文仅在本次运行显示。此图是合成应用快照，网站不会截取屏幕。',
     captureShortcut: '⌘⇧4 选区并编辑；⌃⇧⌘4 直接复制截图。两者可分别设置；如被系统截屏占用，在设置 → 截图查看冲突引导，搜索命令和菜单栏仍可用。首次捕获需要本人授予屏幕录制权限。',
     title: 'Oil Find：文件、应用、剪贴板，一处搜索',
-    description: '按 ⌘Space 打开 macOS 搜索面板。搜索文件与应用，选择性保存剪贴板文本、链接、图片和本地文件路径引用，离线计算和单位换算；网页搜索只在你提交时打开。免费版采用 MIT 许可证并始终免费；Pro 是独立的闭源付费扩展。',
+    description: '按 ⌘Space 打开 macOS 搜索面板。搜索文件、应用与本地 Claude Code、Codex、WorkBuddy 对话，选择性保存剪贴板文本、链接、图片和本地文件路径引用，离线计算和单位换算；网页搜索只在你提交时打开。免费版采用 MIT 许可证并始终免费；Pro 是独立的闭源付费扩展。',
     'nav.speed': '功能', 'nav.syntax': '语法', 'nav.github': 'GitHub', 'nav.download': '下载', 'nav.lang': 'EN',
     lead: ['文件、应用、剪贴板，', '一处搜索'],
     placeholder: '在这里试试：wd、png、readme',
@@ -118,7 +118,7 @@ export const dict: Record<Language, LandingCopy> = {
     'speed.fine': '下面的范围演示只使用网页内置的合成样例，不会读取你的文件、剪贴板或搜索历史。',
     'syn.h': '想找得更准，就多写一点',
     'syn.sub': '点一行，把它填进上面的搜索框。',
-    'note.privacy.h': '隐私', 'note.privacy': '文件引擎只读取名称、大小和修改时间。剪贴板记录默认关闭，启用后保存获准的文本、链接、粘贴板图片和本地文件/文件夹路径引用，在本机加密并由钥匙串保护；图片保留原始编码内容，不自动做 OCR 或联网，可主动在截图工具中识字，单图最多 16 MiB、6400 万像素，历史总量最多 32 MiB；Finder 复制图片文件仍只保存路径，不读取正文。敏感、临时、自动生成标记、来源应用排除及尚未生成的文件承诺限制继续生效。汇率来源只接收固定的公开币种列表，不发送金额或完整查询。网页搜索只在你选择并提交后打开；fork 构建不连接上游官方应用更新服务。 独立截图历史和素材使用派生密钥加密；可编辑历史保留打码前原图，导出仅含最终像素。截图历史默认 7 天、100 张、256 MiB，可关闭。屏幕录制只在主动截图时请求，钉图文退出后不恢复。',
+    'note.privacy.h': '隐私', 'note.privacy': '文件引擎只读取名称、大小和修改时间。启用 AI 会话搜索后，会读取所选来源保存在本机的对话标题与正文，并在本机建立独立索引，不会上传。Pro 的图片与文档内容处理也在本机完成。剪贴板记录默认关闭，启用后保存获准的文本、链接、粘贴板图片和本地文件/文件夹路径引用，在本机加密并由钥匙串保护；图片保留原始编码内容，不自动做 OCR 或联网，可主动在截图工具中识字，单图最多 16 MiB、6400 万像素，历史总量最多 32 MiB；Finder 复制图片文件仍只保存路径，不读取正文。敏感、临时、自动生成标记、来源应用排除及尚未生成的文件承诺限制继续生效。汇率来源只接收固定的公开币种列表，不发送金额或完整查询。网页搜索只在你选择并提交后打开；fork 构建不连接上游官方应用更新服务。独立截图历史和素材使用派生密钥加密；可编辑历史保留打码前原图，导出仅含最终像素。截图历史默认 7 天、100 张、256 MiB，可关闭。屏幕录制只在主动截图时请求，钉图文退出后不恢复。',
     'source.download': '下载 macOS 版',
     'source.github': '在 GitHub 上查看',
     'note.open.h': '第一次打开', 'note.open': '应用还没有经过苹果公证。双击后如果被拦下，去「系统设置 → 隐私与安全性」，在底部点「仍要打开」。只需要一次。',
@@ -156,7 +156,7 @@ export const dict: Record<Language, LandingCopy> = {
     scopeOfflineNote: '普通计算与单位换算离线完成；应用汇率换算是单独开关。此网站演示不联网。网页搜索不会随键入发送内容。',
     home: [
       { icon: 'download', name: '下载 Oil Find', path: '免费开源。macOS 14 及以上，Apple 芯片', meta: updateManifest.version, meta2: '1.5 MB', act: { href: '/downloads/Oil-Find.zip' } },
-      { icon: 'timer', name: '一个面板，多种搜索范围', path: '文件、应用、设置、剪贴板、离线计算和网页搜索', meta: '范围', act: { scroll: 'scopes' } },
+      { icon: 'timer', name: '一个面板，多种搜索范围', path: '文件、应用、设置、剪贴板、本地 AI 对话、离线计算和网页搜索', meta: '范围', act: { scroll: 'scopes' } },
       { icon: 'pinyin', name: '拼音也能搜', path: '输入 <code>wd</code> 找到「文档」，输入 <code>xmwd</code> 找到「项目文档」', meta: '中文', act: { fill: 'wd' } },
       { icon: 'live', name: '剪贴板由你决定', path: '默认关闭；文本、链接、图片和文件路径引用在本机加密保存，可暂停或清空', meta: '选择启用', act: { scroll: 'scopes' } },
       { icon: 'lock', name: '计算离线，汇率可选', path: '普通计算与单位换算离线运行；汇率换算可单独关闭', meta: '本地优先', act: { scroll: 'scopes' } },
@@ -177,7 +177,7 @@ export const dict: Record<Language, LandingCopy> = {
     capturePrivacy: 'Independent screenshot history is encrypted, with defaults of 7 days, 100 images and 256 MiB. Editable history retains originals before redaction; exports contain flattened pixels only. Pins last for this session. This is a synthetic app snapshot; the website does not capture your screen.',
     captureShortcut: '⌘⇧4 selects and edits; ⌃⇧⌘4 copies directly. Configure each separately. If macOS uses a shortcut, Settings → Capture explains how to resolve it; search commands and the menu bar still work. The first capture requires your Screen Recording authorization.',
     title: 'Oil Find: files, apps and clipboard in one search panel',
-    description: '⌘Space searches files, apps, settings & clipboard. Opt-in encrypted text and image history; web opens on submit. Fork disables upstream updates.',
+    description: '⌘Space searches files, apps and local Claude Code, Codex, WorkBuddy chats. Opt-in encrypted clipboard history; web opens on submit. Fork skips upstream updates.',
     'nav.speed': 'Features', 'nav.syntax': 'Syntax', 'nav.github': 'GitHub', 'nav.download': 'Download', 'nav.lang': '中文',
     lead: ['Files, apps and clipboard, ', 'in one search panel'],
     placeholder: 'Try it here: wd, png, readme',
@@ -192,7 +192,7 @@ export const dict: Record<Language, LandingCopy> = {
     'speed.fine': 'The scope demo below uses built-in synthetic examples only. It never reads your files, clipboard or search history.',
     'syn.h': 'Write a little more to find exactly that',
     'syn.sub': 'Click a row to try it in the search field above.',
-    'note.privacy.h': 'Privacy', 'note.privacy': 'The file engine reads names, sizes and modification dates only. Clipboard history is off by default; when enabled, it saves eligible text, links, clipboard images and path references to local files and folders, encrypted locally and protected with Keychain. Images retain their original encoded bytes; they are not automatically OCR-processed or sent over the network; local OCR is available when explicitly requested, and each image is limited to 16 MiB and 64 megapixels within a 32 MiB history cap. Finder copies of image files remain path references and are not read. File references store paths without backing up files or reading contents. Concealed, transient and autogenerated markers, source app exclusions and ungenerated file-promise exclusions still apply. Currency requests contain only a fixed list of public currency pairs, never the amount or full query. Web search opens only after you choose and submit; fork builds do not connect to the upstream official app-update service. Independent screenshot history and materials are encrypted with derived keys. Editable history retains originals before redaction; exports contain flattened pixels only. Defaults are 7 days, 100 images and 256 MiB, and recording can be disabled. Screen Recording is requested only on capture; pins are not restored after exit.',
+    'note.privacy.h': 'Privacy', 'note.privacy': 'The file engine reads names, sizes and modification dates only. When AI conversation search is enabled, selected sources’ locally saved titles and body text are read into a separate local index and never uploaded. Pro image and document processing also stays on your Mac. Clipboard history is off by default; when enabled, it saves eligible text, links, clipboard images and path references to local files and folders, encrypted locally and protected with Keychain. Images retain their original encoded bytes; they are not automatically OCR-processed or sent over the network; local OCR is available when explicitly requested, and each image is limited to 16 MiB and 64 megapixels within a 32 MiB history cap. Finder copies of image files remain path references and are not read. File references store paths without backing up files or reading contents. Concealed, transient and autogenerated markers, source app exclusions and ungenerated file-promise exclusions still apply. Currency requests contain only a fixed list of public currency pairs, never the amount or full query. Web search opens only after you choose and submit; fork builds do not connect to the upstream official app-update service. Independent screenshot history and materials are encrypted with derived keys. Editable history retains originals before redaction; exports contain flattened pixels only. Defaults are 7 days, 100 images and 256 MiB, and recording can be disabled. Screen Recording is requested only on capture; pins are not restored after exit.',
     'source.download': 'Download for macOS',
     'source.github': 'View on GitHub',
     'note.open.h': 'Opening it the first time', 'note.open': 'The app isn’t notarized by Apple yet. If macOS blocks it, go to System Settings → Privacy & Security and click “Open Anyway” at the bottom. Once is enough.',
@@ -231,7 +231,7 @@ export const dict: Record<Language, LandingCopy> = {
     scopeOfflineNote: 'Ordinary calculations and unit conversions run offline; currency conversion is a separate app setting. This website demo makes no network requests. Web search does not send text while you type.',
     home: [
       { icon: 'download', name: 'Download Oil Find', path: 'Free and open source. macOS 14 or later, Apple silicon', meta: updateManifest.version, meta2: '1.5 MB', act: { href: '/downloads/Oil-Find.zip' } },
-      { icon: 'timer', name: 'One panel, several search scopes', path: 'Files, apps, settings, clipboard, offline calculations and web search', meta: 'Scopes', act: { scroll: 'scopes' } },
+      { icon: 'timer', name: 'One panel, several search scopes', path: 'Files, apps, settings, clipboard, local AI conversations, offline calculations and web search', meta: 'Scopes', act: { scroll: 'scopes' } },
       { icon: 'pinyin', name: 'Pinyin search', path: 'Type <code>wd</code> to find 文档, <code>xmwd</code> to find 项目文档', meta: 'Chinese', act: { fill: 'wd' } },
       { icon: 'live', name: 'Clipboard on your terms', path: 'Off by default; text, links, images and file path references are encrypted locally, with pause and clear controls', meta: 'Opt in', act: { scroll: 'scopes' } },
       { icon: 'lock', name: 'Offline calculations, optional currency rates', path: 'Ordinary calculations and unit conversions run offline; currency conversion can be turned off separately', meta: 'Local first', act: { scroll: 'scopes' } },
@@ -423,7 +423,7 @@ const searchQuestions: Record<Language, { q: string; a: string }[]> = {
   "zh": [
     {
       "q": "和 Spotlight 有什么不同",
-      "a": "Spotlight 同时搜索文件内容、应用和网页。Oil Find 使用自己的文件名索引，支持拼音首字母、通配符、正则和实时更新。"
+      "a": "Spotlight 同时搜索文件内容、应用和网页。Oil Find 使用自己的文件名索引，支持拼音首字母、通配符、正则和实时更新；同一面板还能搜索本地 Claude Code、Codex 和 WorkBuddy 对话。"
     },
     {
       "q": "苹果版的 Everything",
@@ -433,7 +433,7 @@ const searchQuestions: Record<Language, { q: string; a: string }[]> = {
   "en": [
     {
       "q": "How it differs from Spotlight",
-      "a": "Spotlight searches file contents, apps and the web. Oil Find uses its own file-name index, with pinyin initials, wildcards, regular expressions and live updates."
+      "a": "Spotlight searches file contents, apps and the web. Oil Find uses its own file-name index, with pinyin initials, wildcards, regular expressions and live updates. The same panel also searches local Claude Code, Codex and WorkBuddy conversations."
     },
     {
       "q": "Everything for Mac",

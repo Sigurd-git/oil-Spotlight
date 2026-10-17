@@ -1,4 +1,9 @@
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { Landing } from '@/components/Landing';
+import { aiTopicsCopy } from '@/content/ai-topics';
 import { demoFiles, match, parse, shouldClearQueryOnShortcut, syntheticCurrencyResult } from '@/content/demo';
 import { dict, GITHUB_URL, type Language } from '@/content/dict';
 import manifest from '@/public/updates/latest.json';
@@ -9,6 +14,27 @@ function names(lang: Language, query: string) {
 }
 
 describe.each(['zh', 'en'] as const)('search demonstration (%s)', lang => {
+  it('integrates local AI search without replacing the fork scope and capture demo', () => {
+    const html = renderToStaticMarkup(createElement(Landing, { lang }));
+    expect(html).toContain('id="ai-topics"');
+    expect(html).toContain(aiTopicsCopy[lang].intro);
+    expect(aiTopicsCopy[lang].intro).toContain('⌘Space');
+    expect(aiTopicsCopy[lang].intro).not.toMatch(/切换到「AI 话题」|Switch to AI Topics/);
+    for (const source of ['claude', 'codex', 'workbuddy']) {
+      const path = `/assets/topic-icons/${source}.png`;
+      expect(html).toContain(path);
+      expect(readFileSync(new URL(`../public${path}`, import.meta.url)).subarray(1, 4).toString()).toBe('PNG');
+    }
+    expect(dict[lang].scopeTabs.slice(0, 5)).toEqual(lang === 'zh'
+      ? ['全部', '应用', '文件', '设置', '剪贴板']
+      : ['All', 'Apps', 'Files', 'Settings', 'Clipboard']);
+    expect(html).toContain('id="scopes"');
+    expect(html).toContain(`/demo/capture-editor-${lang}.png`);
+    expect(dict[lang].scopeClips.join(' ')).toContain('PNG');
+    expect(html).toContain(lang === 'zh' ? '网站合成数据演示' : 'Synthetic website demo');
+    expect(dict[lang]['note.privacy']).toMatch(/对话标题与正文|titles and body text/);
+  });
+
   it('keeps the example searches useful with localized file names', () => {
     expect(names(lang, 'readme !node_modules')).toEqual(['README.md', 'readme-assets']);
     expect(names(lang, 'ext:png')).toHaveLength(4);

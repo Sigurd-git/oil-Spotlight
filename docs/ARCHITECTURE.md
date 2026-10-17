@@ -80,6 +80,8 @@ oil-find/
 
 本地 AI 话题搜索属于免费开源应用，源码在 `Sources/OilFindApp/AITopics/`，测试在 `Tests/OilFindUITests/AITopic*`，资源在应用自己的资源包。`AppDelegate` 管理索引生命周期，搜索和免费设置共用同一管理器，不依赖授权或私有扩展。关闭话题开关撤下分类和命中，退出取消后台任务。来源、增量同步、压缩索引和 CPU 预算见 [AI_TOPICS.md](AI_TOPICS.md)。
 
+fork 由 `SearchCoordinator` 在独立队列执行 `AdditionalSearchProvider`，合并到紧凑 `SearchPresentation`，通过 `LauncherRow.additional` 交给统一列表。全部范围和文件范围的全部类型可并列显示会话；AI 专属筛选位于文件类型栏，不改变五个 `SearchScope` 或其数字快捷键。其他文件类型、应用、设置和剪贴板范围不查询会话。混合结果的稳定身份与去重位置包含会话偏移，文件 ID 仍保持紧凑存储；停用来源立即撤下旧行，滚动和刷新失败不能恢复已撤下的正文。会话动作独立于文件路径、预览、拖拽和删除。
+
 ## 索引存储 IndexStore
 
 全部数组用 `malloc/realloc` 管理，按条目下标并列存放（SoA）。
@@ -361,6 +363,8 @@ Oil Find 是 MIT 许可证下的免费开源软件，搜索始终可用。应用
 版本与 build 来自 `Resources/Info.plist`。`scripts/build-app.sh --debug` 打包的调试版提供 `--snapshot` 界面快照；正式版没有该入口。正式版在签名前移除包含本机源码路径的调试符号；调试版保留调试信息。`scripts/package.sh` 生成版本安装包、通用下载包与更新清单，不执行部署。
 
 构建要求包含 macOS 15.4 及以上 SDK，运行部署目标仍为 macOS 14。CI 使用 macos-15 和显式 Xcode 16.4（SDK 15.5），同时检查 Release 编译、正式应用签名和 ZIP 解压后的产物。应用先在临时目录构建并验签，成功后替换旧产物；失败保留旧产物并清理临时目录。
+
+应用资源包放在 `Contents/Resources`。AI 图标显式查找安装后的资源目录及 SwiftPM 运行目录，资源缺失时安全回退，不调用可能依赖开发机绝对路径并触发 fatalError 的 `Bundle.module`。打包及 CI 从最终 ZIP 解压后运行 `Tests/Scripts/test_packaged_launch.py`，禁止访问 `.build`、真实用户目录、钥匙串服务及网络，开启 AI 来源，确认新进程写入启动确认后仍存活。本地在检查两种历史保存、备份并正常退出旧应用后执行此检查。
 
 ## 原生截图模块
 

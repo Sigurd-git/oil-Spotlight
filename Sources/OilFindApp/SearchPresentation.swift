@@ -108,6 +108,7 @@ final class SearchPresentation {
     }
     func withoutAdditional() -> SearchPresentation { copyFiles() }
     var hasAdditional: Bool { !additionalItems.isEmpty }
+    var additionalResults: [AdditionalSearchItem] { additionalItems }
     func removingUnavailableAdditionalItems(using provider: AdditionalSearchProvider, options: SearchOptions) -> SearchPresentation? {
         guard hasAdditional else { return nil }
         let available = provider.availableItems(from: additionalItems)

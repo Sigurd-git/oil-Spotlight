@@ -83,10 +83,17 @@ final class FilterBar: FlippedView, NSMenuDelegate {
         guard capsule.frame != target else { return }
         Theme.Motion.frame(capsule, to: target, using: animated && !Theme.Motion.reduced ? Theme.Motion.chip : nil)
     }
-    func select(_ index: Int) {
-        guard isEnabled, buttons.indices.contains(index) else { return }
-        options.kind = index == 0 ? nil : UInt8(index)
-        onChange?()
+    func select(_ index: Int, notify: Bool = true) {
+        let count = Self.names.count + (additionalTitle == nil ? 0 : 1)
+        guard isEnabled, index >= 0, index < count else { return }
+        additionalSelected = index == Self.names.count
+        options.kind = index == 0 || additionalSelected ? nil : UInt8(index)
+        if notify { onChange?() }
+    }
+    func cycle(_ delta: Int) {
+        let count = Self.names.count + (additionalTitle == nil ? 0 : 1)
+        let selected = additionalSelected ? Self.names.count : Int(options.kind ?? 0)
+        select(((selected + delta % count) % count + count) % count)
     }
     private func showSortMenu() {
         guard isEnabled else { return }

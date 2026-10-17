@@ -29,6 +29,6 @@ export function Landing({ lang }: { lang: Language }) {
       </div>
       <div className={styles.preview}><SearchPanel lang={lang} /></div>
     </section>
-    <ScopeDemo lang={lang} /><SyntaxSheet lang={lang} /><ProSection lang={lang} />
+    <ScopeDemo lang={lang} /><AITopicsSection lang={lang} /><SyntaxSheet lang={lang} /><ProSection lang={lang} />
   </SearchProvider></main><SiteFooter lang={lang} /></>;
 }

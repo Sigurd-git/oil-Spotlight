@@ -50,6 +50,7 @@ jobs:
           trap 'rm -rf "$archive_check"' EXIT
           ditto -x -k build/Oil-Find-ci.zip "$archive_check"
           scripts/verify-release-app.sh "$archive_check/Oil Find.app"
+          uv run --no-project python Tests/Scripts/test_packaged_launch.py build/Oil-Find-ci.zip
       - name: Upload verified release app
         uses: actions/upload-artifact@v4
         with:
