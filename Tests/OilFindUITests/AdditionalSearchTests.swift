@@ -9,9 +9,16 @@ final class AdditionalSearchTests: XCTestCase {
         var title = "AI Topics"
         var onChange: (() -> Void)?
         var opened = 0, copied = 0
+        var prepared = 0
+        var availableIDs: Set<String>?
+        func availableItems(from items: [AdditionalSearchItem]) -> [AdditionalSearchItem] {
+            guard isEnabled else { return [] }
+            return items.filter { availableIDs?.contains($0.id) ?? true }
+        }
         var delay = false
         let gate = DispatchSemaphore(value: 0)
         func prepareSearch(_ query: Query, isCancelled: @escaping () -> Bool) -> () throws -> [AdditionalSearchItem] {
+            prepared += 1
             let delayed = delay
             return { [self] in
                 if delayed { gate.wait() }
@@ -108,13 +115,16 @@ final class AdditionalSearchTests: XCTestCase {
             NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: 0, context: nil, characters: text, charactersIgnoringModifiers: text, isARepeat: false, keyCode: code)!
         }
         XCTAssertTrue(controller.handleKey(key(51, "", .command)))
+        XCTAssertEqual(controller.searchField.text, "")
         XCTAssertEqual(provider.opened, 0)
+        XCTAssertTrue(eventually { controller.results.snapshot?.raw == "" && controller.results.result?.count == 150 })
         XCTAssertTrue(controller.handleKey(key(8, "c", .command)))
         XCTAssertEqual(provider.copied, 1)
         var dismissed = 0; controller.hidePanel = { dismissed += 1 }
         XCTAssertTrue(controller.handleKey(key(36)))
         XCTAssertTrue(eventually { dismissed == 1 }); XCTAssertEqual(provider.opened, 1)
-        XCTAssertFalse(controller.handleKey(key(29, "0", .command)))
+        XCTAssertTrue(controller.handleKey(key(29, "0", .command)))
+        XCTAssertEqual(controller.scopes.scope, .all)
         controller.filters.select(7)
         XCTAssertEqual(controller.results.result?.count ?? 0, 0)
         XCTAssertFalse(controller.results.result?.hasAdditional == true)
@@ -138,6 +148,42 @@ final class AdditionalSearchTests: XCTestCase {
         results.refresh(next); XCTAssertEqual(results.selectedAdditional?.id, "12")
         results.select(try XCTUnwrap(next.index(sourceID: source.id, store: source.store, id: 1, path: "/generated/shared.swift")))
         XCTAssertNil(results.selectedAdditional); XCTAssertEqual(results.selectedItem?.path, "/generated/shared.swift")
+    }
+
+    func testOtherScopesAndCompositionDoNotStartConversationSearch() {
+        _ = NSApplication.shared
+        let provider = Provider(), controller = SearchViewController(snapshot: true)
+        _ = controller.view; controller.additionalSearchProvider = provider
+        for scope in [SearchScope.apps, .settings, .clipboard] {
+            controller.selectScope(scope)
+            controller.searchField.text = "shared"; controller.startSearch()
+        }
+        XCTAssertEqual(provider.prepared, 0)
+        let coordinator = SearchCoordinator()
+        coordinator.search(raw: "shared", scope: .all, options: .init(), store: nil, editingRange: nil, composing: true,
+                           apps: [], clipboard: [], clipboardEnabled: false, calculator: false, web: false,
+                           engine: .duckDuckGo, additionalProvider: provider)
+        XCTAssertEqual(provider.prepared, 0)
+        controller.selectScope(.all)
+        XCTAssertTrue(eventually { controller.results.snapshot?.scope == .all && controller.results.result?.count == 150 })
+        XCTAssertGreaterThan(provider.prepared, 0)
+    }
+
+    func testContextMenuRejectsConversationRevokedAfterMenuCreation() throws {
+        _ = NSApplication.shared
+        let provider = Provider(), controller = SearchViewController(snapshot: true)
+        _ = controller.view; controller.additionalSearchProvider = provider
+        controller.searchField.text = "shared"; controller.startSearch()
+        XCTAssertTrue(eventually { controller.results.result?.count == 150 })
+        controller.results.select(0)
+        let menu = try XCTUnwrap(controller.results.onContextMenu?(0))
+        let copy = try XCTUnwrap(menu.items.first { $0.title == "Copy Resume" })
+        provider.availableIDs = []
+        provider.onChange?()
+        XCTAssertTrue(provider.isEnabled, "Other provider scopes can remain enabled")
+        XCTAssertEqual(controller.results.result?.count, 0)
+        XCTAssertTrue(NSApp.sendAction(try XCTUnwrap(copy.action), to: copy.target, from: copy))
+        XCTAssertEqual(provider.copied, 0, "An already opened menu cannot execute an unavailable conversation")
     }
     func testPartialDisablePrunesBeforeBlockedFailureAndKeepsEnabledTopicAndFileSelection() throws {
         _ = NSApplication.shared
@@ -214,6 +260,7 @@ final class AdditionalSearchTests: XCTestCase {
         let panel = SearchPanel(snapshot: true), controller = panel.searchController, provider = ScopedProvider(), source = source()
         defer { controller.panelDidHide(); panel.orderOut(nil); panel.close() }
         _ = controller.view; controller.additionalSources = { [source] }; controller.additionalSearchProvider = provider
+        controller.selectScope(.files)
         controller.searchField.text = "shared"; controller.filters.select(FilterBar.names.count, notify: false); controller.startSearch()
         XCTAssertTrue(eventually { controller.results.result?.count == 20 && !controller.searchField.indexing })
         XCTAssertNil(controller.results.result?.single); XCTAssertNil(controller.results.result?.multiple)

@@ -18,7 +18,7 @@
   "everything": {
     "zh": {
       "title": "Mac 上有 Everything 吗？用 Oil Find 按文件名搜索",
-      "description": "Everything 只有 Windows 版。Oil Find 为 Mac 提供本地文件名搜索，支持拼音、通配符和正则；外置磁盘接入时可搜，免费开源。",
+      "description": "Everything 只有 Windows 版。Oil Find 提供免费的 Mac 文件名和本地 Claude Code、Codex、WorkBuddy 对话搜索，支持拼音、通配符和正则；外置磁盘接入时可搜。",
       "h1": "Mac 上的 Everything",
       "intro": "Everything 是 Windows 上很多人离不开的文件搜索工具，但它没有 Mac 版。Oil Find 用同样的思路为 macOS 重新写了一个：给磁盘上所有文件名建一份内存索引，默认按 ⌘Space 搜索；若与 Spotlight 冲突，会临时尝试 ⇧⌘F。",
       "spotlightTitle": "和 Spotlight 的区别",
@@ -34,7 +34,7 @@
         },
         {
           "q": "免费吗？",
-          "a": "免费，开源。外置磁盘接入时可搜索；若要在拔掉后继续搜索，或搜索图片和文档里的文字，需使用上游付费 Pro 扩展。"
+          "a": "免费开源，包含文件名搜索及本地 Claude Code、Codex 和 WorkBuddy 对话搜索。外置磁盘接入时可搜索；若要在拔掉后继续搜索，或搜索图片和文档里的文字，需使用上游付费 Pro 扩展。"
         },
         {
           "q": "支持 Intel Mac 吗？",
@@ -65,7 +65,7 @@
     },
     "en": {
       "title": "Everything for Mac: Oil Find, local file-name search",
-      "description": "Everything is Windows-only. Oil Find brings local file-name search to Mac, with pinyin, wildcards and regex. Connected external drives are searchable for free.",
+      "description": "Everything is Windows-only. Oil Find searches Mac file names and local Claude Code, Codex and WorkBuddy chats for free, plus connected external drives.",
       "h1": "Everything, for the Mac",
       "intro": "Everything is the file search tool many Windows users can’t live without, and it has no Mac version. Oil Find rebuilds the idea for macOS with an in-memory index of file names. Press ⌘Space to search; if Spotlight blocks it, Oil Find temporarily tries ⇧⌘F.",
       "spotlightTitle": "How it differs from Spotlight",
@@ -81,7 +81,7 @@
         },
         {
           "q": "Is it free?",
-          "a": "Yes, and open source. External drives are searchable while connected; searching them after unplugging, plus image and document content, requires the separate upstream Oil Find Pro add-on."
+          "a": "Free and open source, including file names and local Claude Code, Codex and WorkBuddy conversations. External drives are searchable while connected; searching them after unplugging, plus image and document content, requires the separate upstream Oil Find Pro add-on."
         },
         {
           "q": "Does it support Intel Macs?",

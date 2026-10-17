@@ -76,10 +76,12 @@ final class FooterBar: FlippedView {
     }
     func setRow(_ row: LauncherRow?) {
         launcherRow = row
-        for (hint, key) in zip(hints, ["open", "reveal", "preview", "copy"]) { hint.localize(L10n.text("hint." + key)) }
+        for (hint, key) in zip(hints, ["open", "reveal", "preview", "copy"]) { hint.localize(L10n.text("hint." + (key == "copy" && !fileActions ? "copyResult" : key))) }
         if let row {
             switch row {
             case .file: break
+            case .additional:
+                hints[0].localize(L10n.text("topicsOpen")); hints[3].localize(L10n.text("hint.copyResult"))
             case .clipboard:
                 hints[0].localize(L10n.text("clipboard.paste")); hints[3].localize(L10n.text("launcher.copy"))
             case .answer: hints[0].localize(L10n.text("launcher.copy")); hints[3].localize(L10n.text("launcher.copy"))
@@ -106,7 +108,9 @@ final class FooterBar: FlippedView {
         super.layout()
         let applicable: [KeyHint]
         switch launcherRow {
-        case .file, nil: applicable = hints
+        case .file: applicable = hints
+        case .additional: applicable = [hints[0], hints[3]]
+        case nil: applicable = fileActions ? hints : [hints[0], hints[3]]
         case .clipboard(let entry): applicable = entry.filePaths == nil ? [hints[0], hints[2], hints[3]] : hints
         case .enableClipboard, .action: applicable = [hints[0]]
         case .currency(_, .loading): applicable = []
@@ -116,7 +120,8 @@ final class FooterBar: FlippedView {
         let visibleHints = actionable && !warning ? applicable + [syntax] : [syntax]
         hints.forEach { $0.isHidden = !actionable || warning }
         for hint in hints where !applicable.contains(where: { $0 === hint }) { hint.isHidden = true }
-        var x = bounds.width - 18 - visibleHints.reduce(0) { $0 + $1.desiredWidth } - CGFloat(visibleHints.count - 1) * 10
+        settings.frame = NSRect(x: bounds.width - 18 - settings.desiredWidth, y: 4, width: settings.desiredWidth, height: 26)
+        var x = settings.frame.minX - 14 - visibleHints.reduce(0) { $0 + $1.desiredWidth } - CGFloat(visibleHints.count - 1) * 10
         status.frame = NSRect(x: 22, y: 9, width: max(0, x - 38), height: 16)
         toast.frame = status.frame
         for hint in visibleHints { hint.frame = NSRect(x: x, y: 8, width: hint.desiredWidth, height: 18); x += hint.desiredWidth + 10 }

@@ -66,7 +66,10 @@ final class SettingsModel: ObservableObject {
     private var keyMonitor: Any?
     private var timer: Timer?
 
-    init(snapshotStore: IndexStore? = nil, snapshot: Bool = false, languageDefaults: UserDefaults = .standard, preferences: UserDefaults = .standard, clipboard: ClipboardHistory? = nil, capture: CaptureSettingsModel? = nil) {
+    init(snapshotStore: IndexStore? = nil, snapshot: Bool = false, languageDefaults: UserDefaults = .standard, preferences: UserDefaults = .standard, clipboard: ClipboardHistory? = nil, capture: CaptureSettingsModel? = nil, topics: AITopicManager? = nil) {
+        if let topics { self.topics = topics }
+        else if snapshot { self.topics = AITopicManager(defaults: preferences, detectProviders: { Set(AITopicProvider.allCases) }) }
+        else { self.topics = AITopicManager(defaults: preferences) }
         self.snapshot = snapshot
         self.preferences = preferences
         self.languageDefaults = languageDefaults
@@ -423,7 +426,7 @@ private struct SettingsForm: View {
             }
         }
     }
-    private var searchSections: some View {
+    @ViewBuilder private var searchSections: some View {
         Section(L10n.text("settings.search")) {
             VStack(alignment: .leading, spacing: 5) {
                 Picker(L10n.text("settings.queryExpiry"), selection: Binding(get: { model.searchQueryRetention }, set: model.setSearchQueryRetention)) {
@@ -459,6 +462,9 @@ private struct SettingsForm: View {
                 }
             }
             .disabled(!model.webSearchEnabled)
+        }
+        Section(L10n.text("topicsTitle")) {
+            AITopicSettings(manager: model.topics)
         }
     }
     @ViewBuilder private var indexSections: some View {
