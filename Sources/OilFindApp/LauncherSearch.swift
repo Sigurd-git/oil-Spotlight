@@ -10,6 +10,7 @@ enum LauncherRow {
     case file(ResultItem), app(LauncherApp), setting(SystemSetting), clipboard(ClipboardEntry)
     case answer(ToolAnswer), currency(CurrencyQuery, CurrencyLookup), url(URL), web(String, URL), enableClipboard
     case action(CaptureAction)
+    case additional(AdditionalSearchItem)
 
     var identity: String {
         switch self {
@@ -23,6 +24,7 @@ enum LauncherRow {
         case .web(let query, _): return "web:" + query
         case .enableClipboard: return "enableClipboard"
         case .action(let action): return "capture:" + action.rawValue
+        case .additional(let item): return "additional:" + item.id
         }
     }
     var title: String {
@@ -42,6 +44,7 @@ enum LauncherRow {
         case .web(let query, _): return L10n.text("launcher.web", query)
         case .enableClipboard: return L10n.text("clipboard.enable")
         case .action(let action): return action.title
+        case .additional(let item): return item.title
         }
     }
     var subtitle: String {
@@ -66,6 +69,7 @@ enum LauncherRow {
         case .web: return L10n.text("launcher.webHint")
         case .enableClipboard: return L10n.text("clipboard.enableHint")
         case .action: return L10n.text("capture.action.hint")
+        case .additional(let item): return item.detail + " · " + item.location
         }
     }
     var symbol: String {
@@ -80,6 +84,7 @@ enum LauncherRow {
         case .web: return "globe"
         case .enableClipboard: return "clipboard"
         case .action(let action): return action.symbol
+        case .additional: return "bubble.left.and.bubble.right"
         }
     }
 }
@@ -124,6 +129,7 @@ final class SearchSnapshot {
         if offset < fileCount, let filePresentation {
             var original = offset
             for removed in removedOffsets where removed <= original { original += 1 }
+            if let item = filePresentation.additional(at: original) { return .additional(item) }
             return Self.fileItem(filePresentation, offset: original).map(LauncherRow.file)
         }
         return trailing[offset - fileCount]
@@ -140,6 +146,10 @@ final class SearchSnapshot {
     }
     func position(of identity: String, fileID: UInt32? = nil, store: IndexStore? = nil, sourceID: String? = nil) -> Int? {
         if let index = leading.firstIndex(where: { $0.identity == identity }) { return index }
+        if identity.hasPrefix("additional:"), let offset = filePresentation?.index(additionalID: String(identity.dropFirst(11))),
+           !removedOffsets.contains(offset) {
+            return leading.count + offset - removedOffsets.filter { $0 < offset }.count
+        }
         if let filePresentation, identity.hasPrefix("file:") {
             let path = String(identity.dropFirst(5))
             let candidates = sourceID.map { id in filePresentation.sources.filter { $0.id == id } } ?? filePresentation.sources
@@ -178,14 +188,18 @@ enum SearchRoute {
 }
 
 private final class SupplementarySearchBox { var hits: [SupplementaryHit] = [] }
+private final class AdditionalSearchBox { var items: [AdditionalSearchItem] = []; var failed = false; var elapsedMs: Double = 0 }
 
 final class SearchCoordinator {
     private let fileQueue: DispatchQueue, sourceQueue: DispatchQueue
     private let supplementQueue = DispatchQueue(label: "com.oiloil.find.supplement", qos: .userInteractive)
+    private let additionalQueue = DispatchQueue(label: "com.oiloil.find.additional", qos: .userInitiated)
     private let lock = NSLock(), cache = SearchCache()
     private var generation = 0, fileRequest = 0, sourceRequest = 0
     private var raw = "", scope = SearchScope.all, options = SearchOptions()
     private var sources: [SearchSource] = [], supplementaryProvider: SupplementarySearchProvider?
+    private var additionalProvider: AdditionalSearchProvider?, additionalOnly = false
+    private(set) var additionalSearchFailed = false
     private var sourceCaches: [String: SearchCache] = [:], cacheStores: [String: ObjectIdentifier] = [:]
     private var editingRange: NSRange?, composing = false
     private var fileResult: SearchPresentation?, previousFile: SearchPresentation?, extras: [LauncherRow] = [], tail: [LauncherRow] = []
@@ -200,12 +214,18 @@ final class SearchCoordinator {
         return generation == token && (file ? fileRequest : sourceRequest) == request
     }
     func cancelFiles() { lock.lock(); fileRequest += 1; lock.unlock() }
+    func pruneAdditional(using provider: AdditionalSearchProvider) {
+        cancelFiles()
+        if let filtered = fileResult?.removingUnavailableAdditionalItems(using: provider, options: options) { fileResult = filtered }
+        if let filtered = previousFile?.removingUnavailableAdditionalItems(using: provider, options: options) { previousFile = filtered }
+    }
     func search(raw: String, scope: SearchScope, options: SearchOptions, store: IndexStore?, editingRange: NSRange?, composing: Bool,
                 apps: [LauncherApp], clipboard: [ClipboardEntry], clipboardEnabled: Bool,
                 calculator: Bool, web: Bool, engine: WebSearchEngine, sources: [SearchSource]? = nil, supplementaryProvider: SupplementarySearchProvider? = nil,
-                currency: LauncherRow? = nil) {
+                currency: LauncherRow? = nil, additionalProvider: AdditionalSearchProvider? = nil, additionalOnly: Bool = false) {
         lock.lock(); generation += 1; lock.unlock()
         self.raw = raw; self.scope = scope; self.options = options; self.sources = sources ?? Self.primarySource(store); self.supplementaryProvider = supplementaryProvider; self.editingRange = editingRange; self.composing = composing
+        self.additionalProvider = additionalProvider; self.additionalOnly = additionalOnly; additionalSearchFailed = false
         previousFile = fileResult ?? previousFile; fileResult = nil; extras = []; tail = []; delivered = false
         filesPending = (scope == .files || scope == .all) && !self.sources.isEmpty
         refreshFiles(sources: self.sources)
@@ -217,11 +237,10 @@ final class SearchCoordinator {
     func refreshFiles(store: IndexStore?) { refreshFiles(sources: Self.primarySource(store)) }
     func refreshFiles(sources: [SearchSource]) {
         guard scope == .all || scope == .files else { return }
+        let sources = additionalOnly ? [] : sources
         self.sources = sources
         lock.lock(); fileRequest += 1; let request = fileRequest, token = generation; lock.unlock()
-        guard let store = sources.first?.store else {
-            fileResult = nil; previousFile = nil; filesPending = false; publish(); return
-        }
+        let store = sources.first?.store
         let raw = self.raw, options = self.options, range = editingRange, composing = self.composing
         let previous = fileResult ?? previousFile
         let query = Query.parse(raw, store: store, editingRange: range, isComposing: composing, pathExists: { path in
@@ -229,18 +248,34 @@ final class SearchCoordinator {
             return FileManager.default.fileExists(atPath: path)
         })
         let cancelled = { [weak self] in self?.isCurrent(token, request: request, file: true) != true }
-        let supplementary = supplementaryProvider?.isEnabled == true
+        let supplementary = !sources.isEmpty && supplementaryProvider?.isEnabled == true
             ? supplementaryProvider?.prepareSearch(query, options: options, sources: sources, isCancelled: cancelled) : nil
+        let additional = !composing && (additionalOnly || options.kind == nil) && additionalProvider?.isEnabled == true
+            ? additionalProvider?.prepareSearch(query, isCancelled: cancelled) : nil
+        guard !sources.isEmpty || additional != nil else {
+            fileResult = nil; previousFile = nil; filesPending = false; publish(); return
+        }
         let group = DispatchGroup(), box = SupplementarySearchBox()
+        let additionalBox = AdditionalSearchBox()
         if let supplementary {
             group.enter()
             supplementQueue.async { box.hits = supplementary(); group.leave() }
+        }
+        if let additional {
+            group.enter()
+            additionalQueue.async {
+                let began = CFAbsoluteTimeGetCurrent()
+                do { additionalBox.items = try additional() } catch { additionalBox.failed = true }
+                additionalBox.elapsedMs = (CFAbsoluteTimeGetCurrent() - began) * 1000
+                group.leave()
+            }
         }
         filesPending = true
         fileQueue.async { [weak self] in
             guard let self, !cancelled() else { return }
             let found: SearchPresentation
-            if sources.count == 1 && sources[0].id == "startup" {
+            if sources.isEmpty { found = SearchPresentation(query: query) }
+            else if sources.count == 1 && sources[0].id == "startup", let store {
                 if previous?.single?.store !== store { self.cache.removeAll() }
                 guard let result = self.cache.lookup(query: query, options: options, store: store)
                     ?? Searcher.search(query, options: options, in: store, previous: previous?.single, isCancelled: cancelled), !cancelled() else { return }
@@ -260,15 +295,20 @@ final class SearchCoordinator {
             }
             DispatchQueue.main.async { [weak self] in
                 guard let self, !cancelled(), found.isCurrent(self.sources) else { return }
-                self.fileResult = found; self.previousFile = found
-                self.filesPending = supplementary != nil; self.publish()
+                let visible = additional != nil && previous?.query.raw == query.raw
+                    ? found.including(previous?.additionalResults ?? [], options: options) : found
+                self.fileResult = visible; self.previousFile = visible
+                self.filesPending = supplementary != nil || additional != nil; self.publish()
             }
-            if supplementary != nil {
+            if supplementary != nil || additional != nil {
                 group.notify(queue: self.fileQueue) { [weak self] in
                     guard let self, !cancelled() else { return }
-                    let combined = box.hits.isEmpty ? found : found.supplement(box.hits, options: options)
+                    let files = box.hits.isEmpty ? found : found.supplement(box.hits, options: options)
+                    let items = additionalBox.failed && previous?.query.raw == query.raw ? previous?.additionalResults ?? [] : additionalBox.items
+                    let combined = files.including(items, options: options, elapsedMs: additionalBox.elapsedMs)
                     DispatchQueue.main.async { [weak self] in
                         guard let self, !cancelled(), combined.isCurrent(self.sources) else { return }
+                        self.additionalSearchFailed = additionalBox.failed
                         self.fileResult = combined; self.previousFile = combined; self.filesPending = false; self.publish()
                     }
                 }
@@ -365,7 +405,7 @@ final class SearchCoordinator {
     }
     private static func duplicateOffsets(_ filePresentation: SearchPresentation?, leading: [LauncherRow]) -> [Int] {
         guard let filePresentation else { return [] }
-        if let single = filePresentation.single, !filePresentation.hasSupplements {
+        if let single = filePresentation.single, !filePresentation.hasSupplements, !filePresentation.hasAdditional {
             let ids: [UInt32] = single.store.read {
                 leading.compactMap { row in
                     switch row {

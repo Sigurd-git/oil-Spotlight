@@ -91,6 +91,25 @@ final class LauncherSearchTests: XCTestCase {
         XCTAssertNil(snapshot.position(of: "file:\(files.store.rootPath)/b.txt"))
     }
 
+    func testMixedAdditionalOffsetsPreserveTopicAfterApplicationDeduplication() throws {
+        _ = NSApplication.shared
+        let files = store(["shared.app", "shared.txt"])
+        let topic = AdditionalSearchItem(id: "synthetic-topic", title: "shared conversation", detail: "Synthetic excerpt",
+                                         location: "Codex", modified: Date(), icon: NSImage(), relevance: 1200, actions: [])
+        let mixed = SearchPresentation(result(files, raw: "shared")).including([topic], options: .init())
+        let found = SearchCoordinator.compose(raw: "shared", scope: .all, filePresentation: mixed,
+                                              extras: [.app(LauncherApp(name: "shared", path: files.rootPath + "/shared.app"))])
+        XCTAssertEqual(found.count, 3)
+        XCTAssertEqual(Set(identities(found)), ["file:" + files.rootPath + "/shared.app", "file:" + files.rootPath + "/shared.txt", "additional:synthetic-topic"])
+        let position = try XCTUnwrap(found.position(of: "additional:synthetic-topic"))
+        let view = ResultsView(frame: NSRect(x: 0, y: 0, width: 760, height: 300))
+        view.show(found, selection: position)
+        XCTAssertEqual(view.selectedAdditional?.id, topic.id)
+        XCTAssertNil(view.selectedItem)
+        view.refresh(found)
+        XCTAssertEqual(view.selectedAdditional?.id, topic.id)
+    }
+
     func testNonemptyComposeDeduplicatesApplicationsBeyondPromotedFilePrefix() {
         let names = (0..<30).map { String(format: "tool-%02d.txt", $0) } + ["tool-Z.app"]
         let files = result(store(names), raw: "tool")

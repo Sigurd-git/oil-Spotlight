@@ -112,6 +112,11 @@ final class ResultCell: NSTableCellView {
         dateLabel.isHidden = true; sizeLabel.isHidden = true
         toolTip = row.title + "\n" + row.subtitle
         icon.image = Theme.symbol(row.symbol, size: 28, weight: .regular)
+        if case .additional(let item) = row {
+            icon.image = item.icon
+            dateLabel.isHidden = false
+            dateLabel.stringValue = Presentation.dateText(item.modified, now: Date(), calendar: .current, chinese: L10n.chinese)
+        }
         if case .app(let app) = row {
             icon.image = icons.icon(name: app.name, path: app.path, flags: SiftFlag.dir | SiftFlag.package, kind: 2) { [weak self] image in
                 if self?.configuration == token { self?.icon.image = image }
@@ -304,8 +309,9 @@ final class ResultsView: FlippedView, NSTableViewDataSource, NSTableViewDelegate
         if resetScroll { scroll.contentView.scroll(to: NSPoint(x: 0, y: -6)); scroll.reflectScrolledClipView(scroll.contentView) }
         updateSelection(animated: false); refreshing = false; rememberSelection(); recomputeHover(); onSelection?()
     }
-    func refresh(_ snapshot: SearchSnapshot, preserveSelection: Bool = true) {
-        if scrolling || dragging { pendingSnapshot = snapshot; return }
+    func refresh(_ snapshot: SearchSnapshot, preserveSelection: Bool = true, applyingAvailabilityImmediately: Bool = false) {
+        if applyingAvailabilityImmediately { rememberSelection(); cancelPendingRefresh() }
+        if !applyingAvailabilityImmediately && (scrolling || dragging) { pendingSnapshot = snapshot; return }
         let row = selectedLauncherRow
         let origin = scroll.contentView.bounds.origin
         let anchor = retainedSelection ?? row.map { (identity: $0.identity, fileID: selectedID, store: selectedItem?.source.store, sourceID: selectedItem?.source.id, origin: origin) }
@@ -437,7 +443,13 @@ final class ResultsView: FlippedView, NSTableViewDataSource, NSTableViewDelegate
                           path: item.path, size: item.size, modified: item.modified, flags: item.flags, kind: item.kind)
     }
     var selectedItem: ResultItem? { item(at: selectedRow) }
-    var selectedAdditional: AdditionalSearchItem? { result?.additional(at: selectedRow) }
+    var selectedAdditional: AdditionalSearchItem? {
+        if let snapshot {
+            if case .additional(let item)? = snapshot.row(at: selectedRow) { return item }
+            return nil
+        }
+        return result?.additional(at: selectedRow)
+    }
     func select(_ row: Int, repeatKey: Bool = false) {
         if !refreshing { retainedSelection = nil }
         repeating = repeatKey; defer { repeating = false }
@@ -504,6 +516,7 @@ final class ResultsView: FlippedView, NSTableViewDataSource, NSTableViewDelegate
         cell.identifier = identifier
         if let item = item(at: row), let result { cell.configure(item, query: result.query, icons: icons) }
         else if let item = snapshot?.row(at: row) { cell.configure(item, icons: icons) }
+        else if let item = result?.additional(at: row) { cell.configure(.additional(item), icons: icons) }
         else { return nil }
         return cell
     }

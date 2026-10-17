@@ -273,10 +273,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
     @objc func showSettings() { presentSettings() }
     private func presentSettings(section: SettingsSection? = nil) {
+        topics.refreshProviderAvailability()
         panel.hide(source: .settings)
         NSApp.activate(ignoringOtherApps: true)
         if settingsController == nil {
-            let model = SettingsModel(clipboard: panel.searchController.clipboard, capture: capture.settings); model.manager = manager
+            let model = SettingsModel(clipboard: panel.searchController.clipboard, capture: capture.settings, topics: topics); model.manager = manager
             model.suspendHotKey = { [weak self] in
                 self?.hotKey?.unregister(); self?.hotKey = nil
                 self?.actualKeyCode = nil; self?.actualModifiers = nil; self?.updateShortcutStatus()
@@ -367,6 +368,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
     func applicationWillTerminate(_ notification: Notification) {
         if !secondaryInstance {
+            topics.stop()
             panel.searchController.stopSources()
             capture.stop()
             appExtension?.stop()

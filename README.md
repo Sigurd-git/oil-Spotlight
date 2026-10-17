@@ -25,6 +25,8 @@ Dependency folders, app and package internals, Library and system folders are ex
 
 The panel offers All, Apps, Files, Settings and Clipboard scopes, switchable with ⌘0…⌘4. Use ⌥⌘1…9 for file-type filters. File results retain Quick Look, path copying, Finder reveal and drag-and-drop.
 
+Local Claude Code, Claude desktop Code, Codex and WorkBuddy conversation search is free and open source. All includes matching conversations alongside the other sources. In Files, the AI Topics filter shows conversations only; the five scopes keep their existing shortcuts. Conversation titles and visible messages have a separate local index, and their results use conversation actions instead of file operations. Sources can be disabled individually in Settings. See [AI topic indexing](docs/AI_TOPICS.md) for source and privacy boundaries.
+
 Press ⌘⌫ to clear the entire search field. By default, a query expires after the panel has been closed for 1 minute and clears on the next opening. Brief app switches keep it; it never clears while you are typing. In Settings → Search → Clear Search Query, choose immediately after closing, 1 minute, 5 minutes, 15 minutes, or always keep. Scope and filter preferences remain selected.
 
 ![Unified search using synthetic examples](./assets/readme/launcher-en.png)
