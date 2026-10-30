@@ -56,6 +56,28 @@ it.each(['zh', 'en'] as const)('renders the complete channel-specific privacy po
   expect(html.match(/<section>/g)).toHaveLength(t.sections.length + 1);
 });
 
+it.each(['zh', 'en'] as const)('keeps fork data boundaries alongside the upstream privacy channels (%s)', lang => {
+  const sections = privacyCopy[lang].sections;
+  const fork = sections.filter(section => section.title.startsWith('Spotlight fork'));
+  const text = fork.flatMap(section => section.paragraphs).join(' ');
+  expect(fork).toHaveLength(3);
+  const required = lang === 'zh'
+    ? ['不读取文件正文', '剪贴板记录默认关闭', '文件引用不备份原文件', '不自动做 OCR 或联网',
+      '不含金额、完整查询或私人数据', '不在键入时发送查询', '不检查或安装上游官方应用更新',
+      '保留打码前原图', '7 天、100 张', '不记录截图、窗口标题或剪贴板正文']
+    : ['without reading file contents', 'Clipboard recording is off by default', 'file references do not back up files',
+      'without automatic OCR or network access', 'no amount, full query or private data', 'without sending queries as you type',
+      'do not check for or install upstream official app updates', 'retains originals before redaction',
+      '7 days, 100 images', 'never screenshots, window titles or clipboard contents'];
+  for (const boundary of required) expect(text).toContain(boundary);
+  expect(text).toContain('16 MiB');
+  expect(text).toContain('32 MiB');
+  expect(text).toContain('256 MiB');
+  expect(sections.some(section => section.title === (lang === 'zh' ? '上游 Mac App Store 版' : 'Upstream Mac App Store version'))).toBe(true);
+  const direct = sections.find(section => section.title === (lang === 'zh' ? '上游直售版' : 'Upstream direct-sale version'))!;
+  expect(direct.items?.join(' ')).toContain('Stripe');
+});
+
 it.each(['zh', 'en'] as const)('adds internal discovery links and the analytics notice (%s)', lang => {
   const footer = renderToStaticMarkup(createElement(SiteFooter, { lang }));
   for (const page of ['syntax', 'everything-for-mac', 'privacy'] as const) expect(footer).toContain(`href="${pagePath(lang, page)}"`);

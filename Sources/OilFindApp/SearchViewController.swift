@@ -145,7 +145,7 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
                 let position = found.position(of: "file:" + selected.path, fileID: selected.id,
                                               store: selected.source.store, sourceID: selected.source.id) ?? 0
                 self.results.show(found, selection: position, resetScroll: false); self.snapshotDidChange(found)
-            } else if refresh || self.preserveFirstSelection && self.results.snapshot != nil {
+            } else if refresh || self.preserveFirstSelection {
                 self.results.refresh(found, preserveSelection: self.userNavigated || self.preserveFirstSelection)
             } else {
                 self.results.show(found); self.snapshotDidChange(found)
@@ -304,7 +304,7 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
     func startSearch(preserveSelection: Bool = false) {
         invalidateClipboardCopy()
         _ = view
-        preserveFirstSelection = preserveSelection; userNavigated = false; results.cancelPendingRefresh()
+        userNavigated = false; results.cancelPendingRefresh()
         footer.actionable = false
         supplementaryProvider?.userActivity(visible: view.window?.isVisible == true, typing: !preserveSelection)
         let composing = searchField.editor.hasMarkedText()
@@ -313,6 +313,11 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
         var options = filters.options
         if scopes.scope == .all { options.kind = nil }
         if !snapshot { options.pinyin = UserDefaults.standard.bool(forKey: "pinyinEnabled") }
+        let additionalOnly = scopes.scope == .files && filters.additionalSelected
+        // Compare the displayed query, even while an earlier request is still pending.
+        let sameSearch = (results.snapshot?.scope ?? .files) == scopes.scope
+            && results.result?.matchesSearch(raw: searchField.text, options: options, additionalOnly: additionalOnly) == true
+        preserveFirstSelection = preserveSelection || sameSearch
         let defaults = UserDefaults.standard
         coordinator.search(raw: searchField.text, scope: scopes.scope, options: options, store: manager?.store,
                            editingRange: searchField.input.currentEditor() == nil ? nil : searchField.editor.selectedRange(), composing: composing,
@@ -320,7 +325,7 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
                            calculator: snapshot || defaults.bool(forKey: "calculatorEnabled"), web: snapshot || defaults.bool(forKey: "webSearchEnabled"),
                            engine: WebSearchEngine(rawValue: defaults.string(forKey: "webSearchEngine") ?? "duckDuckGo") ?? .duckDuckGo,
                            sources: searchSources, supplementaryProvider: supplementaryProvider, currency: currencyRow,
-                           additionalProvider: additionalSearchProvider, additionalOnly: scopes.scope == .files && filters.additionalSelected)
+                           additionalProvider: additionalSearchProvider, additionalOnly: additionalOnly)
     }
     func startSources() {
         guard !snapshot else { return }
@@ -445,7 +450,7 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
             let query = Query.parse(searchField.text, store: store)
             let sources = additionalOnly ? [] : store.map { [SearchSource(id: "startup", displayName: "", isOnline: true, store: $0)] + additionalSources } ?? additionalSources
             let files: SearchPresentation
-            if sources.isEmpty { files = SearchPresentation(query: query) }
+            if sources.isEmpty { files = SearchPresentation(query: query, options: options, additionalOnly: additionalOnly) }
             else if let result = MultiSearcher.search(query, options: options, in: sources) {
                 let hits = supplementaryProvider?.prepareSearch(query, options: options, sources: sources, isCancelled: { false })() ?? []
                 files = hits.isEmpty ? SearchPresentation(result) : SearchPresentation(result).supplement(hits, options: options)

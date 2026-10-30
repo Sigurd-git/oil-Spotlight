@@ -242,6 +242,7 @@ final class SearchCoordinator {
         lock.lock(); fileRequest += 1; let request = fileRequest, token = generation; lock.unlock()
         let store = sources.first?.store
         let raw = self.raw, options = self.options, range = editingRange, composing = self.composing
+        let additionalOnly = self.additionalOnly
         let previous = fileResult ?? previousFile
         let query = Query.parse(raw, store: store, editingRange: range, isComposing: composing, pathExists: { path in
             if sources.contains(where: { source in source.store.read { source.store.containsPath(path) } }) { return true }
@@ -274,7 +275,7 @@ final class SearchCoordinator {
         fileQueue.async { [weak self] in
             guard let self, !cancelled() else { return }
             let found: SearchPresentation
-            if sources.isEmpty { found = SearchPresentation(query: query) }
+            if sources.isEmpty { found = SearchPresentation(query: query, options: options, additionalOnly: additionalOnly) }
             else if sources.count == 1 && sources[0].id == "startup", let store {
                 if previous?.single?.store !== store { self.cache.removeAll() }
                 guard let result = self.cache.lookup(query: query, options: options, store: store)

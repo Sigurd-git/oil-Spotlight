@@ -10,11 +10,11 @@
     },
     "/privacy": {
       "title": "隐私政策 · Oil Find",
-      "description": "Oil Find 隐私政策：Mac App Store 版与直售版的本地索引、AI 会话、购买、授权、更新和网站数据处理说明。"
+      "description": "Oil Find 隐私政策：Spotlight fork 的本地索引、剪贴板、截图历史、汇率和网页搜索，以及上游购买、授权、更新和网站数据处理说明。"
     },
     "/en/privacy": {
       "title": "Privacy Policy · Oil Find",
-      "description": "How Oil Find handles local indexing, AI conversations, purchases, licensing, updates, and website data in the Mac App Store and direct-sale versions."
+      "description": "Spotlight fork privacy: local search, clipboard and screenshot history, currency and web search, plus upstream licensing, purchases, updates and website data."
     },
     "/syntax": {
       "title": "Oil Find 搜索语法：通配符、正则、拼音和筛选条件",
