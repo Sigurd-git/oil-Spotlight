@@ -27,8 +27,9 @@ final class SearchPresentation {
         single = nil; multiple = nil; submittedQuery = query; createdAt = Date()
         searchOptions = options; self.additionalOnly = additionalOnly
     }
-    func matchesSearch(query: Query, options: SearchOptions, additionalOnly: Bool) -> Bool {
-        guard submittedQuery.raw == query.raw, self.additionalOnly == additionalOnly, let previous = searchOptions else { return false }
+    func matchesSearch(raw: String, options: SearchOptions, additionalOnly: Bool) -> Bool {
+        guard submittedQuery.raw == Query.normalizePaste(raw).precomposedStringWithCanonicalMapping,
+              self.additionalOnly == additionalOnly, let previous = searchOptions else { return false }
         return previous.kind == options.kind && previous.sort == options.sort && previous.ascending == options.ascending && previous.pinyin == options.pinyin
     }
     var query: Query { submittedQuery }

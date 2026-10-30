@@ -124,8 +124,8 @@ Buy it or read more at [find.oiloil.org/en/pro](https://find.oiloil.org/en/pro).
 
 ## Install
 
-1. Download `Oil-Find.zip` from [Releases](https://github.com/oil-oil/oil-find/releases/latest), unzip it and drag Oil Find into Applications.
-2. The first time you open it, macOS blocks it because it isn't notarized by Apple. Go to System Settings → Privacy & Security and click Open Anyway near the bottom.
+1. Build this fork using the [source instructions below](#build-from-source), then run `scripts/install.sh` to install it in Applications.
+2. Local builds use the available signing configuration. Upstream downloads use Developer ID signing and Apple notarization; check this fork's own build verification for its signing status.
 3. Press ⌘Space and start typing. If the shortcut cannot register, the app temporarily tries ⇧⌘F. You can adjust the Spotlight shortcut in System Settings as described above, then retry from Oil Find's Settings.
 4. Optional: grant Full Disk Access to also search mail attachments and other apps' data. Oil Find works fine without it.
 

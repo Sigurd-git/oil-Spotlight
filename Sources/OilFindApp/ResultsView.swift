@@ -312,7 +312,7 @@ final class ResultsView: FlippedView, NSTableViewDataSource, NSTableViewDelegate
     func refresh(_ snapshot: SearchSnapshot, preserveSelection: Bool = true, applyingAvailabilityImmediately: Bool = false) {
         if applyingAvailabilityImmediately { rememberSelection(); cancelPendingRefresh() }
         if !applyingAvailabilityImmediately && (scrolling || dragging) { pendingSnapshot = snapshot; return }
-        let row = selectedLauncherRow
+        let row = selectedLauncherRow ?? selectedItem.map(LauncherRow.file) ?? selectedAdditional.map(LauncherRow.additional)
         let origin = scroll.contentView.bounds.origin
         let anchor = retainedSelection ?? row.map { (identity: $0.identity, fileID: selectedID, store: selectedItem?.source.store, sourceID: selectedItem?.source.id, origin: origin) }
         let position = preserveSelection ? anchor.flatMap { snapshot.position(of: $0.identity, fileID: $0.fileID, store: $0.store, sourceID: $0.sourceID) } : nil

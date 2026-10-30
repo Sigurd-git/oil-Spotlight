@@ -117,6 +117,26 @@ final class ResultRefreshTests: XCTestCase {
         XCTAssertFalse(controller.results.result === initial)
         XCTAssertEqual(scroll.contentView.bounds.origin.y, 1000)
         XCTAssertEqual(controller.results.selectedItem?.path, selection)
+
+        let fileScopeResult = controller.results.result
+        controller.selectScope(.all)
+        let scopeDeadline = Date().addingTimeInterval(3)
+        while (controller.results.result == nil || controller.results.result === fileScopeResult || controller.results.snapshot?.filesPending == true)
+            && Date() < scopeDeadline { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+        XCTAssertEqual(controller.results.snapshot?.scope, .all)
+        XCTAssertEqual(scroll.contentView.bounds.origin.y, -6)
+        XCTAssertEqual(controller.results.selectedRow, 0)
+
+        controller.results.select(30)
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: 1000)); scroll.reflectScrolledClipView(scroll.contentView)
+        let allScopeResult = controller.results.result, allScopeSelection = controller.results.selectedItem?.path
+        controller.startSearch()
+        let retryDeadline = Date().addingTimeInterval(3)
+        while (controller.results.result === allScopeResult || controller.results.snapshot?.filesPending == true)
+            && Date() < retryDeadline { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+        XCTAssertFalse(controller.results.result === allScopeResult)
+        XCTAssertEqual(scroll.contentView.bounds.origin.y, 1000)
+        XCTAssertEqual(controller.results.selectedItem?.path, allScopeSelection)
     }
 
     func testIdenticalItemsKeepSelectionAndViewport() {
