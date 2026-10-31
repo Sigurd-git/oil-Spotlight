@@ -92,6 +92,19 @@ elif name == "xcrun":
         for name in ("swift", "strip", "security", "codesign", "mv", "xcrun"):
             (self.root / "bin" / name).symlink_to(stub)
         (self.root / "scripts/prepare-key-service.sh").symlink_to(stub)
+        # The real Debug launch check runs an executable; record the staged bundle instead.
+        launch_check = self.root / "Tests/Scripts/test_debug_launch.py"
+        launch_check.parent.mkdir(parents=True)
+        launch_check.write_text(r'''
+import json, os, plistlib, sys
+from pathlib import Path
+app = Path(sys.argv[1])
+info = plistlib.loads((app / "Contents/Info.plist").read_bytes())
+with open(os.environ["OILFIND_TEST_LOG"], "a") as log:
+    log.write(json.dumps(["debug-launch-check", str(app), info["CFBundleIdentifier"],
+                          "CFBundleURLTypes" in info]) + "\n")
+sys.exit(1 if os.environ.get("OILFIND_TEST_FAIL") == "debug-launch" else 0)
+''')
 
     def app_path(self, debug=False):
         return self.root / ("build/debug/Oil Find.app" if debug else "build/Oil Find.app")
@@ -330,8 +343,47 @@ elif name == "xcrun":
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue((release / "stale-resource").exists())
         self.assertFalse((debug / "stale-resource").exists())
-        self.assertIn(["swift", "build", "-c", "debug"], self.calls())
-        self.assertFalse(any(call[0] == "strip" for call in self.calls()))
+        calls = self.calls()
+        self.assertIn(["swift", "build", "-c", "debug"], calls)
+        self.assertFalse(any(call[0] == "strip" for call in calls))
+        info = plistlib.loads((debug / "Contents/Info.plist").read_bytes())
+        self.assertEqual(info["CFBundleIdentifier"], "com.oiloil.find.debug")
+        self.assertEqual(info["CFBundleName"], "Oil Find Debug")
+        self.assertNotIn("CFBundleURLTypes", info)
+        sign = next(call for call in calls if call[:2] == ["codesign", "--force"])
+        self.assertEqual(sign[sign.index("--sign") + 1], "-")
+        self.assertEqual(sign[sign.index("--identifier") + 1], "com.oiloil.find.debug")
+        check_index = next(i for i, call in enumerate(calls) if call[0] == "debug-launch-check")
+        self.assertEqual(calls[check_index][1:], [sign[-1], "com.oiloil.find.debug", False])
+        self.assertLess(check_index, next(i for i, call in enumerate(calls) if call[0] == "mv"))
+        self.assert_no_stage()
+
+    def test_stable_debug_bundle_keeps_fixed_service_identity(self):
+        self.write_local_signing_config()
+        debug = self.app_path(debug=True)
+        result = self.run_script(arguments=("--debug",), OILFIND_TEST_LOCAL_IDENTITY=LOCAL_CERTIFICATE_SHA1,
+                                 OILFIND_REQUIRE_STABLE_SIGNING="1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = self.calls()
+        signs = [call for call in calls if call[:2] == ["codesign", "--force"]]
+        self.assertEqual(len(signs), 1)
+        self.assertEqual(signs[0][signs[0].index("--sign") + 1], LOCAL_CERTIFICATE_SHA1)
+        self.assertEqual(signs[0][signs[0].index("--identifier") + 1], "com.oiloil.find")
+        info = plistlib.loads((debug / "Contents/Info.plist").read_bytes())
+        self.assertEqual(info["CFBundleIdentifier"], "com.oiloil.find.debug")
+        self.assertIs(info["OilFindUsesKeyService"], True)
+        self.assertEqual((debug / "Contents/XPCServices/OilFindClipboardKeyService.xpc/service").read_text(),
+                         "fixed test service")
+        self.assertTrue(any(call[0] == "debug-launch-check" for call in calls))
+        self.assert_no_stage()
+
+    def test_debug_launch_check_failure_preserves_previous_debug_bundle(self):
+        debug = self.seed_old_app(debug=True)
+        result = self.run_script(arguments=("--debug",), OILFIND_TEST_FAIL="debug-launch")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual((debug / "stale-resource").read_text(), "old artifact")
+        self.assertFalse((debug / "Contents").exists())
+        self.assertFalse(any(call[0] == "mv" for call in self.calls()))
         self.assert_no_stage()
 
     def test_declared_resources_are_staged_and_obsolete_bundles_removed(self):

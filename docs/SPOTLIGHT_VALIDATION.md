@@ -524,3 +524,22 @@ Quick Look 用例的功能断言在初始失败时已通过，失败发生在原
 证据在 Git 忽略的 `build/validation/upstream-auto-sync/20261030T085923Z/`。安装准备时设置显示剪贴板 183 条、30 天 / 1,000 条，截图 36 张、0 项素材、7 天 / 100 张且已加密保存，无保存错误或截图待保存提示；已限制权限备份应用、偏好、剪贴板密文、截图和素材。替换前仍需重新核对保存状态和正常退出保护。最终提交、准确 CI、远端租约、安装哈希及真实历史恢复以该目录和自动维护 `state.json` 为准，未完成安装验收前不标记交付完成。
 
 18 项跳过包含原有可选性能和私人数据检查，以及新增的六项上游官方签名链实测夹具；未配置官方 Developer ID / 桥接身份，不以注入签名验证测试替代这些实签测试。本机为 macOS 27.0.1，未新增 macOS 14/15 真机、真实全局物理截图快捷键、辅助功能自动粘贴或百万级整界面延迟实测。固定 XPC 没有重编、重签或迁移，未修改证书、主密钥、访问规则或系统安全设置。
+
+## 2026-10-31：上游 Debug 启动隔离与固定签名
+
+确认上一轮 `765e0b5` 的准确 CI、安装主程序和固定 XPC 仍有效且无待办后，保存恢复分支 `backup/spotlight-launcher-before-upstream-20261031T090933Z`、Git bundle 和旧版应用，将 29 个 fork 提交 rebase 到上游 `8f7b9db9e9785eb0a75746fa7f3c66fd47aae6c8`（#16，版本仍为 1.8.2 / build 22）。Git 操作按本任务授权在命令级关闭提交签名，应用继续使用原固定签名配置。
+
+上游让 Debug 程序只接受 `--snapshot` 和受控测试入口，普通启动在创建索引或文件监控前以状态 2 退出；需要文件结果的快照必须显式提供 `--db`。fork 的 `--capture-upgrade-probe` 归入受控入口，同样保留。Debug 包的 Info.plist 改为 `com.oiloil.find.debug`、名称 Oil Find Debug，并移除 URL scheme。上游 Debug 包使用临时签名；本机配置固定本地签名时，Debug 代码签名仍使用固定证书和 `com.oiloil.find` 标识并嵌入原 XPC 服务，因为服务只接受该签名身份，固定服务跨构建验证依赖它。Debug 启动隔离检查改在暂存包上运行，失败时保留旧 Debug 包；构建脚本测试新增对应断言。上游把滚动惯性回归的等待放宽到 3 秒，本 fork 保留原 150 ms 断言及诊断信息，本机完整测试中该项通过。
+
+| 检查 | 本轮结果 | 本地证据 |
+| --- | --- | --- |
+| 完整 Swift | native 后端执行 515 项，18 项按原条件跳过；M21 两项 APFS / ExFAT 挂载测试共 3 条断言超过 1 秒，其余通过 | `swift-full.log` |
+| M21 原因 | Oil Find 停止耗时 0.000–0.002 秒、残留描述符 0；超时来自其后的 `hdiutil detach`。与应用无关、无任何打开者的空 APFS 映像弹出同期需要 1.25–3.13 秒（上一轮约 0.7 秒），系统负载约 15–68。阈值未放宽，测试未删除 | `swift-m21-rerun*.log`、`raw-detach-probe*.log` |
+| Debug 隔离 | 原始 Debug 可执行文件和稳定签名 Debug 暂存包均通过：普通启动拒绝，缺少 `--db` 明确报错，快照渲染后退出 | `debug-executable-launch.log`、`build-debug.log` |
+| 脚本与官网 | uv 下 70 项脚本测试通过；Node.js 22.21.1 / pnpm 11.25.0：223 项网站测试、类型检查与正式构建通过 | `script-tests.log`、`site-*.log` |
+| 加密升级 | 隔离跨进程验证 17 项 PASS，系统钥匙串搜索列表、默认项和 trust 不变 | `encrypted-upgrade.log` |
+| 固定 XPC 跨构建 | 旧 Debug 写入、新 Debug（`.debug` bundle ID、固定签名标识）读回合成剪贴板与四层可编辑截图；真实剪贴板只读取条数，归档哈希不变 | `fixed-service-upgrade-result.json`、`fixed-service-*.log` |
+| 构建与身份 | Release / Debug、ZIP 解压后的正式 bundle 核验通过：minos 14.0 / SDK 27.2；固定 leaf、DR、服务源码指纹、缓存及缓存外身份记录一致，嵌入 XPC 逐字节相同 | `signing-verification.json`、`release-verify.log`、`release-zip-verify.log` |
+| 合成界面 | 会话中英文浅深色、选区、编辑和参考汇率共 8 张；抽查中文会话和英文汇率日期 | `snapshot-results.json`、`snapshots/` |
+
+证据在 Git 忽略的 `build/validation/upstream-auto-sync/20261031T090933Z/`。打包冷启动检查要求旧应用已退出，放在安装窗口执行；最终提交、准确 CI、远端租约、安装哈希及真实历史恢复以该目录和自动维护 `state.json` 为准。本机为 macOS 27，未新增 macOS 14/15 真机、真实全局物理截图快捷键、辅助功能自动粘贴或百万级整界面延迟实测。固定 XPC 没有重编、重签或迁移。
