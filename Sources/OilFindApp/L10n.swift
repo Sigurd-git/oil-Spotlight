@@ -224,7 +224,7 @@ enum L10n {
         "settings.calculatorHint": ("离线计算表达式，换算常用单位。", "Calculate expressions and convert common units offline."),
         "settings.currency": ("汇率换算", "Currency Conversion"),
         "settings.queryExpiry": ("搜索词自动清空", "Clear Search Query"),
-        "settings.queryExpiryHint": ("从面板关闭时开始计时，重新打开时清空已过期的搜索词；输入过程中不会清空。", "Starts when the panel closes. Expired queries clear when it reopens, never while you are typing."),
+        "settings.queryExpiryHint": ("重新打开面板时默认回到「全部」，并清空已过期的搜索词。计时从面板关闭时开始。", "Reopening the panel defaults to All and clears expired queries. The timer starts when the panel closes."),
         "settings.queryExpiry.immediate": ("关闭后立即", "Immediately after closing"),
         "settings.queryExpiry.minute": ("关闭 1 分钟后", "After 1 minute"),
         "settings.queryExpiry.fiveMinutes": ("关闭 5 分钟后", "After 5 minutes"),

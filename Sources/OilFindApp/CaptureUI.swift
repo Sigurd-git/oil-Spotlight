@@ -38,6 +38,8 @@ final class CaptureOverlayController {
             // Like the launcher, acquire keyboard focus without waiting for app activation.
             let window = CaptureOverlayWindow(contentRect: CaptureGeometry.cocoa(display.frame, mainHeight: mainHeight), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
             window.backgroundColor = .clear; window.isOpaque = false; window.hasShadow = false; window.isRestorable = false; window.level = .screenSaver
+            // The system fade can leave the selection visible after orderOut.
+            window.animationBehavior = .none
             window.hidesOnDeactivate = false
             window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]; window.acceptsMouseMovedEvents = true; window.isReleasedWhenClosed = false
             let view = CaptureOverlayView(frame: CGRect(origin: .zero, size: display.frame.size)); view.controller = self
@@ -144,11 +146,18 @@ final class CaptureOverlayController {
             view.needsDisplay = true
         }
     }
+    var visibleWindowIDs: Set<CGWindowID> {
+        Set(windows.compactMap { window in
+            guard window.isVisible, window.windowNumber > 0 else { return nil }
+            return CGWindowID(exactly: window.windowNumber)
+        })
+    }
     func close() {
         if let keyMonitor { NSEvent.removeMonitor(keyMonitor); self.keyMonitor = nil }
         if let focusObserver { NotificationCenter.default.removeObserver(focusObserver); self.focusObserver = nil }
         if let activationObserver { NSWorkspace.shared.notificationCenter.removeObserver(activationObserver); self.activationObserver = nil }
-        activeProcessID = nil; pendingSelection = nil; windows.forEach { $0.close() }; windows = []; views = []
+        activeProcessID = nil; pendingSelection = nil
+        windows.forEach { $0.orderOut(nil); $0.close() }; windows = []; views = []
     }
     deinit { close() }
 }

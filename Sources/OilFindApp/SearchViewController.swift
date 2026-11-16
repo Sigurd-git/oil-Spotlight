@@ -263,7 +263,10 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
         }
     }
     func panelWillShow() {
-        if let hiddenAt, SearchQueryRetention.read(from: preferences).expired(hiddenAt: hiddenAt, now: clock()) {
+        let expired = hiddenAt.map { SearchQueryRetention.read(from: preferences).expired(hiddenAt: $0, now: clock()) } ?? false
+        let resetScope = requestedScope != .all
+        requestedScope = .all
+        if expired {
             searchField.editor.unmarkText()
             searchField.text = ""
         }
@@ -271,7 +274,7 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
         setBrowsing(false)
         additionalSearchProvider?.visibilityChanged(true)
         supplementaryProvider?.userActivity(visible: true, typing: false)
-        if scopes.scope == .clipboard { _ = clipboard.search("") }
+        if expired || resetScope { startSearch(); return }
         if !snapshot { startSearch(preserveSelection: true); return }
         let currentQuery = Query.parse(searchField.text, store: manager?.store)
         let sources = searchSources
@@ -309,7 +312,10 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
         supplementaryProvider?.userActivity(visible: view.window?.isVisible == true, typing: !preserveSelection)
         let composing = searchField.editor.hasMarkedText()
         let effective = SearchRoute.effectiveScope(searchField.text, requested: requestedScope, composing: composing)
-        if effective != scopes.scope { scopes.scope = effective; view.needsLayout = true }
+        if effective != scopes.scope {
+            scopes.scope = effective; view.needsLayout = true
+            refreshAdditionalFilter()
+        }
         var options = filters.options
         if scopes.scope == .all { options.kind = nil }
         if !snapshot { options.pinyin = UserDefaults.standard.bool(forKey: "pinyinEnabled") }

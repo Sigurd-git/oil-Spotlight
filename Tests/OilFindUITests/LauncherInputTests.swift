@@ -116,7 +116,7 @@ final class LauncherInputTests: XCTestCase {
         XCTAssertEqual(controller.scopes.scope, .all)
     }
 
-    func testQueryExpiryReadsChangedPreferenceAndKeepsClipboardScope() throws {
+    func testReopenResetsScopeWithRetainedAndExpiredQueries() throws {
         let name = "OilFind.QueryExpiryTest." + UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
         defer { defaults.removePersistentDomain(forName: name) }
@@ -130,12 +130,31 @@ final class LauncherInputTests: XCTestCase {
         now = now.addingTimeInterval(10_000)
         controller.panelWillShow()
         XCTAssertEqual(controller.searchField.text, "old query")
+        XCTAssertEqual(controller.scopes.scope, .all)
+        controller.selectScope(.clipboard)
         controller.panelDidHide()
         defaults.set(SearchQueryRetention.immediately.rawValue, forKey: "searchQueryRetention")
         controller.panelWillShow()
         XCTAssertEqual(controller.searchField.text, "")
-        XCTAssertEqual(controller.scopes.scope, .clipboard)
+        XCTAssertEqual(controller.scopes.scope, .all)
         XCTAssertEqual(controller.clipboard.entries, [entry])
+    }
+
+    func testRetainedFileSyntaxStillRoutesToFilesUntilQueryExpires() throws {
+        let name = "OilFind.QueryExpiryTest." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        var now = Date(timeIntervalSince1970: 1_000)
+        let controller = SearchViewController(snapshot: true, preferences: defaults, clock: { now })
+        try controller.prepareLauncherSnapshot(SearchSnapshot(raw: "ext:pdf", scope: .files, leading: []))
+        controller.panelDidHide()
+        controller.panelWillShow()
+        XCTAssertEqual(controller.scopes.scope, .files)
+        controller.panelDidHide()
+        now = now.addingTimeInterval(60)
+        controller.panelWillShow()
+        XCTAssertEqual(controller.searchField.text, "")
+        XCTAssertEqual(controller.scopes.scope, .all)
     }
 
     func testQueryRetentionSettingsAndInvalidValuesUseSafeDefaults() throws {

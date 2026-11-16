@@ -90,7 +90,11 @@ final class ScreenCaptureBackend: NSObject, CaptureBackend, SCStreamOutput, SCSt
         }
     }
     private func displayFilter(_ display: SCDisplay, content: SCShareableContent) -> SCContentFilter {
-        let excluded = content.applications.filter { $0.processID == ProcessInfo.processInfo.processIdentifier }
+        let pid = ProcessInfo.processInfo.processIdentifier
+        let excluded = content.applications.filter { $0.processID == pid }
+        if excluded.isEmpty {
+            return SCContentFilter(display: display, excludingWindows: content.windows.filter { $0.owningApplication?.processID == pid })
+        }
         return SCContentFilter(display: display, excludingApplications: excluded, exceptingWindows: [])
     }
     private func configuration(rect: CGRect, scale: Double) -> SCStreamConfiguration {
@@ -115,6 +119,11 @@ final class ScreenCaptureBackend: NSObject, CaptureBackend, SCStreamOutput, SCSt
                     guard CaptureRaster.accepts(width: config.width, height: config.height) else { throw CaptureFailure.capacity }
                     image = try await SCScreenshotManager.captureImage(contentFilter: SCContentFilter(desktopIndependentWindow: window), configuration: config)
                 case .region(let region):
+                    // A background launcher may have been absent from the catalog
+                    // taken before showing the selection panels.
+                    let pid = ProcessInfo.processInfo.processIdentifier
+                    let content = content.applications.contains(where: { $0.processID == pid })
+                        ? content : try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
                     let displays = content.displays.map { display in CaptureDisplay(id: display.displayID, frame: CGDisplayBounds(display.displayID), scale: Double(CGDisplayCopyDisplayMode(display.displayID)?.pixelWidth ?? display.width) / Double(max(1, display.width))) }
                     let plan = try CaptureGeometry.plan(region: region, displays: displays)
                     var images: [(CGRect, CGImage)] = []

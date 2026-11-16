@@ -20,9 +20,11 @@ final class CaptureWorkflowTests: XCTestCase {
         var catalogReply: ((Result<CaptureCatalog, Error>) -> Void)?
         var captureReply: ((Result<CGImage, Error>) -> Void)?
         var selections: [CaptureSelection] = []
+        var beforeCapture: (() -> Void)?
         func requestPermission() -> Bool { permissionRequests += 1; return hasPermission }
         func catalog(completion: @escaping (Result<CaptureCatalog, Error>) -> Void) { catalogReply = completion }
         func capture(_ selection: CaptureSelection, completion: @escaping (Result<CGImage, Error>) -> Void) {
+            beforeCapture?()
             selections.append(selection); captureReply = completion
         }
         func startStream(region: CGRect, frame: @escaping (CGImage) -> Void, failure: @escaping (Error) -> Void, completion: @escaping (Result<Void, Error>) -> Void) { XCTFail("Unexpected stream") }
@@ -210,6 +212,7 @@ final class CaptureWorkflowTests: XCTestCase {
                 defaults: defaults(), pasteboard: board, focusRestorer: { _ in })
             var document: CaptureDocument?
             coordinator.onDocument = { document = $0 }
+            coordinator.onErrorMessage = { XCTFail($0) }
             defer { coordinator.cancel() }
             coordinator.run(action); backend.catalogReply?(.success(catalog))
             let window = try XCTUnwrap(NSApp.windows.first { !previous.contains($0.windowNumber) && $0.isVisible })
@@ -223,7 +226,7 @@ final class CaptureWorkflowTests: XCTestCase {
                 XCTAssertTrue(backend.selections.isEmpty)
                 NSApp.sendEvent(try key(36))
             }
-            XCTAssertEqual(backend.selections, [.window(7)])
+            waitFor { backend.selections == [.window(7)] }
             XCTAssertFalse(window.isVisible)
             backend.captureReply?(.success(try image()))
             if action == .region {
@@ -400,12 +403,34 @@ final class CaptureWorkflowTests: XCTestCase {
         XCTAssertEqual(backend.selections, [final]); XCTAssertEqual(board.changeCount, revision); XCTAssertTrue(history.entries.isEmpty)
     }
     func testQuickCaptureCopiesPNGWithoutEditorAndRestoresEditableHistory() throws {
+        _ = NSApplication.shared
         let backend = Backend(), board = pasteboard(), history = try history()
         var overlay: CaptureOverlayController?, focusRestoredAfterCopy = false
-        let coordinator = CaptureCoordinator(clipboard: ClipboardHistory(snapshot: true), backend: backend, history: history, defaults: defaults(), pasteboard: board, presentSelection: { overlay = $0 }, focusRestorer: { _ in focusRestoredAfterCopy = board.data(forType: .png) != nil })
+        let coordinator = CaptureCoordinator(clipboard: ClipboardHistory(snapshot: true), backend: backend, history: history, defaults: defaults(), pasteboard: board, presentSelection: { overlay = $0; $0.present() }, focusRestorer: { _ in focusRestoredAfterCopy = board.data(forType: .png) != nil })
         coordinator.onDocument = { _ in XCTFail("Quick copy must not open an editor") }
-        coordinator.run(.copyRegion); backend.catalogReply?(.success(.init(displays: [], windows: [])))
-        overlay?.select(.region(CGRect(x: 0, y: 0, width: 48, height: 32))); backend.captureReply?(.success(try image()))
+        coordinator.onErrorMessage = { XCTFail($0) }
+        let screen = try XCTUnwrap(NSScreen.screens.first)
+        let frame = CaptureGeometry.quartz(CGRect(x: (screen.frame.midX - 120).rounded(), y: (screen.frame.midY - 80).rounded(), width: 240, height: 160), mainHeight: screen.frame.height)
+        coordinator.run(.copyRegion)
+        defer { coordinator.cancel() }
+        backend.catalogReply?(.success(.init(displays: [.init(id: CGMainDisplayID(), frame: frame, scale: 1)], windows: [])))
+        let windowID = try XCTUnwrap(overlay?.visibleWindowIDs.first)
+        let window = try XCTUnwrap(NSApp.windows.first { $0.windowNumber == Int(windowID) })
+        func overlayIsOnScreen() -> Bool {
+            let windows = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [[String: Any]] ?? []
+            return windows.contains { ($0[kCGWindowNumber as String] as? NSNumber)?.uint32Value == windowID }
+        }
+        waitFor { overlayIsOnScreen() }
+        backend.beforeCapture = { XCTAssertFalse(overlayIsOnScreen(), "The selection overlay must be off screen before reading pixels") }
+        let selection = CaptureSelection.region(CGRect(x: frame.minX + 20, y: frame.minY + 20, width: 48, height: 32))
+        for (type, point) in [(NSEvent.EventType.leftMouseDown, CGPoint(x: 20, y: 140)),
+                              (.leftMouseUp, CGPoint(x: 68, y: 108))] {
+            let event = try XCTUnwrap(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: 0,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+            NSApp.sendEvent(event)
+        }
+        waitFor { backend.selections == [selection] }
+        backend.captureReply?(.success(try image()))
         waitFor { board.data(forType: .png) != nil && history.entries.count == 1 && history.pending == 0 }
         XCTAssertTrue(coordinator.editors.isEmpty); XCTAssertNotNil(board.data(forType: ClipboardSystemPasteboard.ownCopyType))
         XCTAssertTrue(focusRestoredAfterCopy)

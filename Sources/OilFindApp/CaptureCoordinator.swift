@@ -89,16 +89,39 @@ final class CaptureCoordinator: NSObject {
                     overlay.onSelect = { [weak self] selection in
                         guard let self, token == self.generation else { return }
                         AppLog.logger.info("capture selection confirmed session=\(token, privacy: .public)")
+                        let windowIDs = self.overlay?.visibleWindowIDs ?? []
                         self.overlay?.close(); self.overlay = nil
-                        if action == .scroll {
-                            let rect: CGRect?
-                            switch selection { case .region(let region): rect = region; case .window(let id): rect = catalog.windows.first { $0.id == id }?.frame }
-                            if let rect { self.startScroll(rect, token: token) }
-                        } else { self.capture(selection, action: action, token: token, restoreFocus: directCopy ? front : nil) }
+                        self.afterOverlayHidden(windowIDs, token: token, deadline: .now() + .milliseconds(250)) { [weak self] in
+                            guard let self else { return }
+                            if action == .scroll {
+                                let rect: CGRect?
+                                switch selection { case .region(let region): rect = region; case .window(let id): rect = catalog.windows.first { $0.id == id }?.frame }
+                                if let rect { self.startScroll(rect, token: token) }
+                            } else { self.capture(selection, action: action, token: token, restoreFocus: directCopy ? front : nil) }
+                        }
                     }
                     self.presentSelection(overlay)
                 }
             }
+        }
+    }
+    private func afterOverlayHidden(_ windowIDs: Set<CGWindowID>, token: Int, deadline: DispatchTime, perform: @escaping () -> Void) {
+        guard token == generation else { return }
+        // Closing an AppKit window and removing it from WindowServer are separate steps.
+        if windowIDs.isEmpty || Self.overlayIsOffScreen(windowIDs) { perform(); return }
+        guard DispatchTime.now() < deadline else {
+            AppLog.logger.error("capture overlay did not leave the screen session=\(token, privacy: .public)")
+            showError(CaptureFailure.invalidImage); return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(16)) { [weak self] in
+            self?.afterOverlayHidden(windowIDs, token: token, deadline: deadline, perform: perform)
+        }
+    }
+    private static func overlayIsOffScreen(_ windowIDs: Set<CGWindowID>) -> Bool {
+        let visible = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [[String: Any]] ?? []
+        return !visible.contains {
+            guard let id = ($0[kCGWindowNumber as String] as? NSNumber)?.uint32Value else { return false }
+            return windowIDs.contains(id)
         }
     }
     private func capture(_ selection: CaptureSelection, action: CaptureAction, token: Int, restoreFocus application: NSRunningApplication? = nil) {
