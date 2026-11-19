@@ -10,7 +10,10 @@ struct CaptureWindow: Equatable {
     let id: CGWindowID, frame: CGRect, title: String, owner: String
 }
 struct CaptureCatalog { var displays: [CaptureDisplay]; var windows: [CaptureWindow] }
-enum CaptureSelection: Equatable { case region(CGRect), window(CGWindowID) }
+enum CaptureSelection: Equatable {
+    case region(CGRect)
+    case window(CGWindowID, alignToFrame: Bool = false)
+}
 
 enum CaptureGeometry {
     static func quartz(_ cocoa: CGRect, mainHeight: CGFloat) -> CGRect {
@@ -111,11 +114,16 @@ final class ScreenCaptureBackend: NSObject, CaptureBackend, SCStreamOutput, SCSt
             do {
                 let image: CGImage
                 switch selection {
-                case .window(let id):
+                case .window(let id, let alignToFrame):
                     guard let window = content.windows.first(where: { $0.windowID == id }), window.owningApplication?.processID != ProcessInfo.processInfo.processIdentifier else { throw CaptureFailure.invalidImage }
                     let scale = (try CaptureGeometry.plan(region: window.frame, displays: content.displays.map { .init(id: $0.displayID, frame: CGDisplayBounds($0.displayID), scale: Double(CGDisplayCopyDisplayMode($0.displayID)?.pixelWidth ?? $0.width) / Double(max(1, $0.width))) })).scale
                     let config = configuration(rect: CGRect(origin: .zero, size: window.frame.size), scale: scale)
                     config.sourceRect = .zero
+                    if alignToFrame {
+                        // Overlay annotations are positioned against the full SCWindow frame.
+                        config.ignoreShadowsSingleWindow = true
+                        config.ignoreGlobalClipSingleWindow = true
+                    }
                     guard CaptureRaster.accepts(width: config.width, height: config.height) else { throw CaptureFailure.capacity }
                     image = try await SCScreenshotManager.captureImage(contentFilter: SCContentFilter(desktopIndependentWindow: window), configuration: config)
                 case .region(let region):

@@ -45,10 +45,10 @@ final class CaptureWorkflowTests: XCTestCase {
         return CaptureHistory(archive: CaptureArchive(directory: root.appendingPathComponent("history"), keys: Keys(), existingMasterArchive: { false }),
                               materialArchive: CaptureArchive(directory: root.appendingPathComponent("materials"), keys: Keys(), purpose: "materials", existingMasterArchive: { false }))
     }
-    private func image() throws -> CGImage {
-        let context = try XCTUnwrap(CGContext(data: nil, width: 48, height: 32, bitsPerComponent: 8, bytesPerRow: 0,
-                                              space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
-        context.setFillColor(CGColor(red: 0.2, green: 0.6, blue: 0.8, alpha: 1)); context.fill(CGRect(x: 0, y: 0, width: 48, height: 32))
+    private func image(width: Int = 48, height: Int = 32) throws -> CGImage {
+        let context = try XCTUnwrap(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                                              space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(CGColor(red: 0.2, green: 0.6, blue: 0.8, alpha: 1)); context.fill(CGRect(x: 0, y: 0, width: width, height: height))
         return try XCTUnwrap(context.makeImage())
     }
     private func waitFor(_ condition: () -> Bool, file: StaticString = #filePath, line: UInt = #line) {
@@ -95,8 +95,20 @@ final class CaptureWorkflowTests: XCTestCase {
         XCTAssertEqual(overlay.pendingSelection, expected)
         overlay.confirmSelection(); XCTAssertEqual(selections, [expected])
     }
-    private func key(_ code: UInt16, repeatKey: Bool = false) throws -> NSEvent {
-        try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: repeatKey, keyCode: code))
+    private func key(_ code: UInt16, repeatKey: Bool = false, modifiers: NSEvent.ModifierFlags = []) throws -> NSEvent {
+        try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: 0, windowNumber: 0, context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: repeatKey, keyCode: code))
+    }
+    private func drag(from start: CGPoint, to end: CGPoint, in window: NSWindow) throws {
+        let events: [(NSEvent.EventType, CGPoint)] = [(.leftMouseDown, start), (.leftMouseDragged, end), (.leftMouseUp, end)]
+        for (type, point) in events {
+            NSApp.sendEvent(try XCTUnwrap(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: 0,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1)))
+        }
+    }
+    private func button(_ label: String, in view: NSView) -> NSButton? {
+        guard !view.isHidden else { return nil }
+        if let button = view as? NSButton, button.accessibilityLabel() == label { return button }
+        return view.subviews.lazy.compactMap { self.button(label, in: $0) }.first
     }
     private func presentOverlay(displayCount: Int = 1, candidates: [CaptureWindow] = [], requiresConfirmation: Bool = true,
                                 frontmostProcessID: @escaping () -> pid_t? = { NSWorkspace.shared.frontmostApplication?.processIdentifier }) throws -> (CaptureOverlayController, [NSWindow]) {
@@ -105,7 +117,7 @@ final class CaptureWorkflowTests: XCTestCase {
         let existing = Set(NSApp.windows.map(\.windowNumber))
         let displays = (0..<displayCount).map { CaptureDisplay(id: UInt32($0 + 1), frame: CaptureGeometry.quartz(CGRect(x: 100 + $0 * 350, y: 200, width: 320, height: 240), mainHeight: height), scale: 1) }
         let overlay = CaptureOverlayController(catalog: .init(displays: displays, windows: candidates), windowMode: false,
-                                               requiresConfirmation: requiresConfirmation, frontmostProcessID: frontmostProcessID)
+                                               mode: requiresConfirmation ? .confirm : .copyImmediately, frontmostProcessID: frontmostProcessID)
         addTeardownBlock { overlay.close() }
         overlay.present()
         let windows = NSApp.windows.filter { !existing.contains($0.windowNumber) && $0.isVisible }
@@ -200,7 +212,7 @@ final class CaptureWorkflowTests: XCTestCase {
             XCTAssertNil(overlay.pendingSelection)
         }
     }
-    func testWindowMouseEventsDeliverPixelsToEditorOrClipboard() throws {
+    func testWindowMouseEventsCopyOnReturnOrImmediatelyInQuickMode() throws {
         _ = NSApplication.shared
         let height = try XCTUnwrap(NSScreen.screens.first).frame.height
         let display = CaptureDisplay(id: 1, frame: CaptureGeometry.quartz(CGRect(x: 100, y: 200, width: 320, height: 240), mainHeight: height), scale: 1)
@@ -210,8 +222,7 @@ final class CaptureWorkflowTests: XCTestCase {
             let previous = Set(NSApp.windows.map(\.windowNumber))
             let coordinator = CaptureCoordinator(clipboard: ClipboardHistory(snapshot: true), backend: backend, history: history,
                 defaults: defaults(), pasteboard: board, focusRestorer: { _ in })
-            var document: CaptureDocument?
-            coordinator.onDocument = { document = $0 }
+            coordinator.onDocument = { _ in XCTFail("Copying the chosen window should finish in the overlay") }
             coordinator.onErrorMessage = { XCTFail($0) }
             defer { coordinator.cancel() }
             coordinator.run(action); backend.catalogReply?(.success(catalog))
@@ -226,18 +237,12 @@ final class CaptureWorkflowTests: XCTestCase {
                 XCTAssertTrue(backend.selections.isEmpty)
                 NSApp.sendEvent(try key(36))
             }
-            waitFor { backend.selections == [.window(7)] }
+            waitFor { backend.selections == [.window(7, alignToFrame: action == .region)] }
             XCTAssertFalse(window.isVisible)
             backend.captureReply?(.success(try image()))
-            if action == .region {
-                waitFor { document != nil }
-                XCTAssertEqual(document?.original.width, 48)
-                XCTAssertNil(board.data(forType: .png)); XCTAssertTrue(history.entries.isEmpty)
-            } else {
-                waitFor { board.data(forType: .png) != nil && history.pending == 0 && history.entries.count == 1 }
-                XCTAssertNil(document); XCTAssertTrue(coordinator.editors.isEmpty)
-                XCTAssertEqual(try CaptureRaster(data: XCTUnwrap(board.data(forType: .png))).width, 48)
-            }
+            waitFor { board.data(forType: .png) != nil && history.pending == 0 && history.entries.count == 1 }
+            XCTAssertTrue(coordinator.editors.isEmpty)
+            XCTAssertEqual(try CaptureRaster(data: XCTUnwrap(board.data(forType: .png))).width, 48)
         }
     }
     private func otherApplication() throws -> NSRunningApplication {
@@ -383,24 +388,159 @@ final class CaptureWorkflowTests: XCTestCase {
         }
     }
     func testQuickSelectionSubmitsImmediatelyAndConfirmationCannotSubmitTwice() {
-        let overlay = CaptureOverlayController(catalog: .init(displays: [], windows: []), windowMode: false, requiresConfirmation: false)
+        let overlay = CaptureOverlayController(catalog: .init(displays: [], windows: []), windowMode: false, mode: .copyImmediately)
         var captured: [CaptureSelection] = []; overlay.onSelect = { captured.append($0) }
         overlay.select(.window(19)); overlay.confirmSelection()
         XCTAssertEqual(captured, [.window(19)]); XCTAssertNil(overlay.pendingSelection)
     }
-    func testNormalCaptureWaitsForConfirmationAndDoesNotChangeClipboardOrHistory() throws {
+    func testSelectionToolbarDrawsAndCopiesFlattenedPixelsWithEditableHistory() throws {
+        _ = NSApplication.shared
         let backend = Backend(), board = pasteboard(), history = try history()
-        var overlay: CaptureOverlayController?, opened: CaptureDocument?
-        let coordinator = CaptureCoordinator(clipboard: ClipboardHistory(snapshot: true), backend: backend, history: history, defaults: defaults(), pasteboard: board, presentSelection: { overlay = $0 }, focusRestorer: { _ in })
-        coordinator.onDocument = { opened = $0 }
+        var overlay: CaptureOverlayController?
+        let coordinator = CaptureCoordinator(clipboard: ClipboardHistory(snapshot: true), backend: backend, history: history, defaults: defaults(),
+            pasteboard: board, presentSelection: { overlay = $0; $0.present() })
+        defer { coordinator.cancel() }
+        coordinator.onDocument = { _ in XCTFail("Inline copy opened an editor") }
+        coordinator.onErrorMessage = { XCTFail($0) }
+        let screen = try XCTUnwrap(NSScreen.screens.first)
+        let frame = CaptureGeometry.quartz(CGRect(x: (screen.frame.midX - 340).rounded(), y: (screen.frame.midY - 170).rounded(), width: 680, height: 340),
+                                           mainHeight: screen.frame.height)
         board.setString("synthetic original", forType: .string); let revision = board.changeCount
-        coordinator.run(.region); backend.catalogReply?(.success(.init(displays: [], windows: [])))
-        overlay?.select(.region(CGRect(x: 0, y: 0, width: 30, height: 20)))
-        XCTAssertTrue(backend.selections.isEmpty); overlay?.reselect()
-        let final = CaptureSelection.region(CGRect(x: 12, y: 30, width: 48, height: 32))
-        overlay?.select(final); overlay?.confirmSelection(); backend.captureReply?(.success(try image()))
-        waitFor { opened != nil }
-        XCTAssertEqual(backend.selections, [final]); XCTAssertEqual(board.changeCount, revision); XCTAssertTrue(history.entries.isEmpty)
+        coordinator.run(.region)
+        backend.catalogReply?(.success(.init(displays: [.init(id: 1, frame: frame, scale: 2)], windows: [])))
+        let windowID = try XCTUnwrap(overlay?.visibleWindowIDs.first)
+        let window = try XCTUnwrap(NSApp.windows.first { $0.windowNumber == Int(windowID) })
+        let view = try XCTUnwrap(window.contentView)
+        func isOnScreen() -> Bool {
+            let windows = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [[String: Any]] ?? []
+            return windows.contains { ($0[kCGWindowNumber as String] as? NSNumber)?.uint32Value == windowID }
+        }
+        waitFor { isOnScreen() }
+        backend.beforeCapture = { XCTAssertFalse(isOnScreen()) }
+
+        try drag(from: CGPoint(x: 310, y: 83), to: CGPoint(x: 580, y: 260), in: window)
+        try XCTUnwrap(button(CaptureTool.ellipse.title, in: view)).performClick(nil)
+        try drag(from: CGPoint(x: 337, y: 125), to: CGPoint(x: 392, y: 198), in: window)
+        XCTAssertTrue(coordinator.hasUnsavedEdits)
+        NSApp.sendEvent(try key(15))
+        XCTAssertNil(overlay?.pendingSelection)
+        XCTAssertFalse(coordinator.hasUnsavedEdits)
+
+        try drag(from: CGPoint(x: 100, y: 120), to: CGPoint(x: 280, y: 230), in: window)
+        let selection = CaptureSelection.region(CGRect(x: frame.minX + 100, y: frame.minY + 110, width: 180, height: 110).integral)
+        view.layoutSubtreeIfNeeded()
+        let arrow = try XCTUnwrap(button(CaptureTool.arrow.title, in: view))
+        let arrowPoint = arrow.convert(CGPoint(x: arrow.bounds.midX, y: arrow.bounds.midY), to: view)
+        XCTAssertTrue(view.hitTest(arrowPoint) === arrow)
+        arrow.performClick(nil)
+        try drag(from: CGPoint(x: 115, y: 145), to: CGPoint(x: 180, y: 205), in: window)
+        try XCTUnwrap(button(CaptureTool.rectangle.title, in: view)).performClick(nil)
+        try drag(from: CGPoint(x: 206, y: 164), to: CGPoint(x: 260, y: 191), in: window)
+        NSApp.sendEvent(try key(6, modifiers: .command))
+        XCTAssertTrue(try XCTUnwrap(button(L10n.text("capture.editor.redo"), in: view)).isEnabled)
+        NSApp.sendEvent(try key(6, modifiers: [.command, .shift]))
+        try XCTUnwrap(button(CaptureTool.text.title, in: view)).performClick(nil)
+        let textPoint = CGPoint(x: 120, y: 221)
+        try drag(from: textPoint, to: textPoint, in: window)
+        let fieldEditor = try XCTUnwrap(window.firstResponder as? NSTextView)
+        fieldEditor.insertText("中文 R", replacementRange: NSRange(location: NSNotFound, length: 0))
+        NSApp.sendEvent(try key(36))
+        XCTAssertTrue(window.firstResponder === view)
+
+        XCTAssertEqual(overlay?.pendingSelection, selection)
+        XCTAssertTrue(coordinator.hasUnsavedEdits)
+        XCTAssertTrue(backend.selections.isEmpty)
+        XCTAssertEqual(board.changeCount, revision)
+        XCTAssertTrue(history.entries.isEmpty)
+        NSApp.sendEvent(try key(36))
+        overlay?.confirmSelection()
+        waitFor { backend.selections == [selection] }
+        let base = try image(width: 360, height: 220)
+        backend.captureReply?(.success(base))
+        waitFor { board.data(forType: .png) != nil && history.entries.count == 1 && history.pending == 0 }
+        let raster = try CaptureRaster(data: XCTUnwrap(board.data(forType: .png)))
+        let flattened = try CapturePixels(raster.image())
+        let source = try CapturePixels(base)
+        XCTAssertEqual(flattened.width, 360); XCTAssertEqual(flattened.height, 220)
+        let edge = (78 * 360 + 250) * 4
+        XCTAssertGreaterThan(flattened.bytes[edge], 200)
+        let untouched = (38 * 360 + 250) * 4
+        XCTAssertEqual(Array(flattened.bytes[untouched..<untouched + 4]), Array(source.bytes[untouched..<untouched + 4]))
+        XCTAssertFalse(coordinator.hasUnsavedEdits)
+
+        let recovered = expectation(description: "Annotated capture reopens")
+        history.read(try XCTUnwrap(history.entries.first)) { result in
+            defer { recovered.fulfill() }
+            do {
+                let document = try result.get()
+                XCTAssertEqual(try CapturePixels(document.original.image()).bytes, source.bytes)
+                XCTAssertEqual(document.annotations.map(\.tool), [.arrow, .rectangle, .text])
+                XCTAssertEqual(document.annotations.first { $0.tool == .rectangle }?.rect, CGRect(x: 212, y: 78, width: 108, height: 54))
+                XCTAssertEqual(document.annotations.last?.text, "中文 R")
+                XCTAssertEqual(try CapturePixels(CaptureRenderer.image(document)).bytes, flattened.bytes)
+            } catch { XCTFail(String(describing: error)) }
+        }
+        wait(for: [recovered], timeout: 3)
+    }
+    func testSelectionSaveCanBeCancelledAndRetriedWithoutLosingMarks() throws {
+        _ = NSApplication.shared
+        RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+        let backend = Backend(), board = pasteboard(), history = try history(), preferences = defaults()
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("OilFindExport-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var overlay: CaptureOverlayController?
+        var finishChoosing: ((CaptureCoordinator.ExportDestination?) -> Void)?
+        let coordinator = CaptureCoordinator(clipboard: ClipboardHistory(snapshot: true), backend: backend, history: history, defaults: preferences,
+            pasteboard: board, presentSelection: { overlay = $0; $0.present() }, pickSelectionDestination: { _, completion in
+                finishChoosing = completion
+                return nil
+            })
+        defer { coordinator.cancel() }
+        coordinator.onDocument = { _ in XCTFail("Saving inline opened an editor") }
+        coordinator.onErrorMessage = { XCTFail($0) }
+        let screen = try XCTUnwrap(NSScreen.screens.first)
+        let frame = CaptureGeometry.quartz(CGRect(x: 100, y: 160, width: 680, height: 340), mainHeight: screen.frame.height)
+        let originalText = "Synthetic clipboard content"
+        board.setString(originalText, forType: .string)
+        coordinator.run(.region)
+        backend.catalogReply?(.success(.init(displays: [.init(id: 1, frame: frame, scale: 1)], windows: [])))
+
+        func overlayWindow() throws -> NSWindow {
+            let id = try XCTUnwrap(overlay?.visibleWindowIDs.first)
+            return try XCTUnwrap(NSApp.windows.first { $0.windowNumber == Int(id) })
+        }
+        func chooseSave(atAttempt count: Int) throws -> (CaptureCoordinator.ExportDestination?) -> Void {
+            finishChoosing = nil
+            let view = try XCTUnwrap(try overlayWindow().contentView)
+            try XCTUnwrap(button(L10n.text("capture.editor.save"), in: view)).performClick(nil)
+            waitFor { backend.selections.count == count }
+            backend.captureReply?(.success(try image(width: 180, height: 110)))
+            waitFor { finishChoosing != nil }
+            return try XCTUnwrap(finishChoosing)
+        }
+
+        let window = try overlayWindow()
+        try drag(from: CGPoint(x: 100, y: 120), to: CGPoint(x: 280, y: 230), in: window)
+        try XCTUnwrap(button(CaptureTool.rectangle.title, in: XCTUnwrap(window.contentView))).performClick(nil)
+        try drag(from: CGPoint(x: 138, y: 151), to: CGPoint(x: 220, y: 202), in: window)
+        let selection = try XCTUnwrap(overlay?.pendingSelection)
+        let cancelSave = try chooseSave(atAttempt: 1)
+        cancelSave(nil)
+        waitFor { overlay?.visibleWindowIDs.isEmpty == false }
+        XCTAssertTrue(coordinator.hasUnsavedEdits)
+        XCTAssertEqual(overlay?.pendingSelection, selection)
+        XCTAssertTrue(history.entries.isEmpty)
+        let output = directory.appendingPathComponent("Annotated.png")
+        let save = try chooseSave(atAttempt: 2)
+        save((output, .png))
+        waitFor { history.entries.count == 1 && history.pending == 0 }
+        let exported = try CaptureRaster(data: Data(contentsOf: output))
+        let pixels = try CapturePixels(exported.image())
+        XCTAssertEqual(pixels.width, 180); XCTAssertEqual(pixels.height, 110)
+        XCTAssertGreaterThan(pixels.bytes[(28 * 180 + 70) * 4], 200)
+        XCTAssertEqual(board.string(forType: .string), originalText)
+        XCTAssertFalse(coordinator.hasUnsavedEdits)
     }
     func testQuickCaptureCopiesPNGWithoutEditorAndRestoresEditableHistory() throws {
         _ = NSApplication.shared

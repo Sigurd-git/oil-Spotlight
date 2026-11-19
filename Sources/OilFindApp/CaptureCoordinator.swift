@@ -3,6 +3,9 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 final class CaptureCoordinator: NSObject {
+    typealias ExportDestination = (url: URL, type: UTType)
+    typealias PickSelectionDestination = (String, @escaping (ExportDestination?) -> Void) -> NSSavePanel?
+
     let backend: CaptureBackend, history: CaptureHistory, settings: CaptureSettingsModel
     let clipboard: ClipboardHistory
     var hideSearch: (() -> Void)?, showSettings: (() -> Void)?
@@ -15,16 +18,23 @@ final class CaptureCoordinator: NSObject {
     private(set) var editors: [CaptureEditorController] = []
     private var pins: [CapturePinController] = [], textWindows: [CaptureTextController] = []
     private var historyWindow: NSWindow?
+    private var selectionSavePanel: NSSavePanel?
+    private var pendingSelectionExports = 0
     private let worker = DispatchQueue(label: "com.oiloil.find.capture-render", qos: .userInitiated)
     private let pasteboard: NSPasteboard
+    private let defaults: UserDefaults
     private let presentSelection: (CaptureOverlayController) -> Void
     private let focusRestorer: (NSRunningApplication?) -> Void
+    private let pickSelectionDestination: PickSelectionDestination
     private var source: (String?, String?) = (nil, nil)
     init(clipboard: ClipboardHistory, backend: CaptureBackend = ScreenCaptureBackend(), history: CaptureHistory = CaptureHistory(), defaults: UserDefaults = .standard,
          pasteboard: NSPasteboard = .general, presentSelection: @escaping (CaptureOverlayController) -> Void = { $0.present() },
-         focusRestorer: ((NSRunningApplication?) -> Void)? = nil) {
+         focusRestorer: ((NSRunningApplication?) -> Void)? = nil, pickSelectionDestination: PickSelectionDestination? = nil) {
         self.clipboard = clipboard; self.backend = backend; self.history = history
-        self.pasteboard = pasteboard; self.presentSelection = presentSelection
+        self.pasteboard = pasteboard; self.defaults = defaults; self.presentSelection = presentSelection
+        self.pickSelectionDestination = pickSelectionDestination ?? { title, completion in
+            Self.chooseSaveDestination(title: title, window: nil, defaults: defaults, completion: completion)
+        }
         self.focusRestorer = focusRestorer ?? { application in
             guard let application, !application.isTerminated, application.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return }
             application.activate(options: [])
@@ -34,16 +44,30 @@ final class CaptureCoordinator: NSObject {
         settings.onRetry = { [weak self] in self?.run(.region) }
         settings.onHistory = { [weak self] in self?.showHistory() }
     }
-    var hasUnsavedEdits: Bool { editors.contains { $0.model.dirty } }
-    var preventsTermination: Bool { hasUnsavedEdits || history.pending > 0 }
+    var hasUnsavedEdits: Bool { editors.contains { $0.model.dirty } || overlay?.hasMarkup == true }
+    var preventsTermination: Bool { hasUnsavedEdits || history.pending > 0 || pendingSelectionExports > 0 }
     func prepareToQuit() -> Bool {
+        if pendingSelectionExports > 0 { showErrorMessage(L10n.text("capture.history.pending")); return false }
         if history.pending > 0 { showError(CaptureFailure.storage); return false }
         guard hasUnsavedEdits else { return true }
+        let token = generation
+        let selectionWasVisible = overlay?.visibleWindowIDs.isEmpty == false
+        if selectionWasVisible { overlay?.hide() }
         let alert = NSAlert(); alert.messageText = L10n.text("capture.editor.close"); alert.informativeText = L10n.text("capture.editor.closeHint")
         alert.addButton(withTitle: L10n.text("capture.editor.keep")); alert.addButton(withTitle: L10n.text("capture.editor.discard"))
-        return alert.runModal() == .alertSecondButtonReturn
+        let shouldQuit = alert.runModal() == .alertSecondButtonReturn
+        if selectionWasVisible, !shouldQuit { resumeSelection(token: token) }
+        return shouldQuit
     }
-    func cancel() { generation += 1; overlay?.close(); overlay = nil; backend.stopStream(); scrollWindow?.close(); scrollWindow = nil; stitcher = nil; scrollModel = nil }
+    func cancel() {
+        generation += 1
+        discardSelection()
+        let panel = selectionSavePanel
+        selectionSavePanel = nil
+        panel?.cancel(nil)
+        backend.stopStream(); scrollWindow?.close(); scrollWindow = nil; stitcher = nil; scrollModel = nil
+    }
+    private func discardSelection() { overlay?.close(); overlay = nil }
     func stop() { cancel(); settings.cancelRecording(); history.flush(); pins.forEach { $0.close() } }
     func run(_ action: CaptureAction) {
         switch action {
@@ -77,9 +101,10 @@ final class CaptureCoordinator: NSObject {
                     let point = NSEvent.mouseLocation
                     let quartz = CGPoint(x: point.x, y: (NSScreen.screens.first?.frame.height ?? 0) - point.y)
                     guard let display = catalog.displays.first(where: { $0.frame.contains(quartz) }) else { return }
-                    self.capture(.region(display.frame), action: action, token: token)
+                    self.capture(.region(display.frame), token: token)
                 } else {
-                    let overlay = CaptureOverlayController(catalog: catalog, windowMode: action == .window, requiresConfirmation: !directCopy)
+                    let mode: CaptureOverlayController.Mode = directCopy ? .copyImmediately : action == .scroll ? .confirm : .annotate
+                    let overlay = CaptureOverlayController(catalog: catalog, windowMode: action == .window, mode: mode)
                     self.overlay = overlay
                     overlay.onCancel = { [weak self] in
                         guard let self, token == self.generation else { return }; self.cancel()
@@ -87,22 +112,36 @@ final class CaptureCoordinator: NSObject {
                         if directCopy, NSWorkspace.shared.frontmostApplication?.processIdentifier == ProcessInfo.processInfo.processIdentifier { self.restoreFocus(front) }
                     }
                     overlay.onSelect = { [weak self] selection in
-                        guard let self, token == self.generation else { return }
-                        AppLog.logger.info("capture selection confirmed session=\(token, privacy: .public)")
-                        let windowIDs = self.overlay?.visibleWindowIDs ?? []
-                        self.overlay?.close(); self.overlay = nil
-                        self.afterOverlayHidden(windowIDs, token: token, deadline: .now() + .milliseconds(250)) { [weak self] in
+                        self?.finishSelection(token: token, keepDraft: false) { [weak self] in
                             guard let self else { return }
                             if action == .scroll {
                                 let rect: CGRect?
-                                switch selection { case .region(let region): rect = region; case .window(let id): rect = catalog.windows.first { $0.id == id }?.frame }
+                                switch selection { case .region(let region): rect = region; case .window(let id, _): rect = catalog.windows.first { $0.id == id }?.frame }
                                 if let rect { self.startScroll(rect, token: token) }
-                            } else { self.capture(selection, action: action, token: token, restoreFocus: directCopy ? front : nil) }
+                            } else { self.capture(selection, token: token, delivery: .quickCopy, restoreFocus: front) }
+                        }
+                    }
+                    overlay.onMarkupFinish = { [weak self] submission in
+                        self?.finishSelection(token: token, keepDraft: true) { [weak self] in
+                            self?.capture(submission.selection, token: token, delivery: .markup(submission))
                         }
                     }
                     self.presentSelection(overlay)
                 }
             }
+        }
+    }
+    private func finishSelection(token: Int, keepDraft: Bool, perform: @escaping () -> Void) {
+        guard token == generation else { return }
+        AppLog.logger.info("capture selection confirmed session=\(token, privacy: .public)")
+        let windowIDs = overlay?.visibleWindowIDs ?? []
+        if keepDraft { overlay?.hide() } else { discardSelection() }
+        afterOverlayHidden(windowIDs, token: token, deadline: .now() + .milliseconds(250), perform: perform)
+    }
+    private func resumeSelection(token: Int) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.generation == token, let overlay = self.overlay else { return }
+            self.presentSelection(overlay)
         }
     }
     private func afterOverlayHidden(_ windowIDs: Set<CGWindowID>, token: Int, deadline: DispatchTime, perform: @escaping () -> Void) {
@@ -111,7 +150,9 @@ final class CaptureCoordinator: NSObject {
         if windowIDs.isEmpty || Self.overlayIsOffScreen(windowIDs) { perform(); return }
         guard DispatchTime.now() < deadline else {
             AppLog.logger.error("capture overlay did not leave the screen session=\(token, privacy: .public)")
-            showError(CaptureFailure.invalidImage); return
+            showError(CaptureFailure.invalidImage)
+            resumeSelection(token: token)
+            return
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(16)) { [weak self] in
             self?.afterOverlayHidden(windowIDs, token: token, deadline: deadline, perform: perform)
@@ -124,16 +165,29 @@ final class CaptureCoordinator: NSObject {
             return windowIDs.contains(id)
         }
     }
-    private func capture(_ selection: CaptureSelection, action: CaptureAction, token: Int, restoreFocus application: NSRunningApplication? = nil) {
+    private enum Delivery {
+        case editor, quickCopy, markup(CaptureMarkupSubmission)
+
+        var reductionAction: String {
+            switch self {
+            case .quickCopy: return "capture.reduce.copy"
+            case .markup(let submission) where submission.output == .copy: return "capture.reduce.copy"
+            case .markup(let submission) where submission.output == .save: return "capture.reduce.save"
+            default: return "capture.reduce.edit"
+            }
+        }
+    }
+    private func capture(_ selection: CaptureSelection, token: Int, delivery: Delivery = .editor, restoreFocus application: NSRunningApplication? = nil) {
         backend.capture(selection) { [weak self] result in
             guard let self, self.generation == token else { return }
             switch result {
             case .success(let image):
                 AppLog.logger.info("capture pixels received session=\(token, privacy: .public) width=\(image.width, privacy: .public) height=\(image.height, privacy: .public)")
-                self.openImage(image, token: token, directCopy: action == .copyRegion, restoreFocus: application)
+                self.openImage(image, token: token, delivery: delivery, restoreFocus: application)
             case .failure(let error):
                 AppLog.logger.error("capture backend failed session=\(token, privacy: .public) code=\((error as NSError).code, privacy: .public)")
                 self.showError(error)
+                self.resumeSelection(token: token)
             }
         }
     }
@@ -176,15 +230,23 @@ final class CaptureCoordinator: NSObject {
             if case .failure(let error) = result { self?.cancel(); self?.showError(error) }
         })
     }
-    private func openImage(_ image: CGImage, token: Int, directCopy: Bool = false, restoreFocus application: NSRunningApplication? = nil) {
+    private func openImage(_ image: CGImage, token: Int, delivery: Delivery = .editor, restoreFocus application: NSRunningApplication? = nil) {
         let source = self.source
         worker.async { [weak self] in
-            let result = Result { CaptureDocument(original: try CaptureRaster(image: image), sourceBundleID: source.0, sourceName: source.1) }
+            let result = Result {
+                var document = CaptureDocument(original: try CaptureRaster(image: image), sourceBundleID: source.0, sourceName: source.1)
+                if case .markup(let submission) = delivery {
+                    document.annotations = submission.annotations(in: document.original.bounds.size)
+                    guard document.valid else { throw CaptureFailure.capacity }
+                }
+                return document
+            }
             DispatchQueue.main.async {
                 guard let self, self.generation == token else { return }
                 switch result {
                 case .success(let document):
-                    if directCopy {
+                    switch delivery {
+                    case .quickCopy:
                         guard self.copyImage(document.original.data) else { self.showErrorMessage(L10n.text("capture.copy.failed")); return }
                         AppLog.logger.info("capture delivered destination=clipboard session=\(token, privacy: .public)")
                         self.restoreFocus(application)
@@ -192,22 +254,33 @@ final class CaptureCoordinator: NSObject {
                             guard self.generation == token else { return }
                             if !success { self.showErrorMessage(L10n.text("capture.copy.saveError")) }
                         }
-                    } else {
+                    case .editor:
                         self.open(document)
                         AppLog.logger.info("capture delivered destination=editor session=\(token, privacy: .public)")
+                    case .markup(let submission):
+                        self.deliverMarkup(document, to: submission.output, token: token)
                     }
                 case .failure(let error):
-                    guard case .capacity? = error as? CaptureFailure else { self.showError(error); return }
+                    guard case .capacity? = error as? CaptureFailure else {
+                        self.showError(error)
+                        self.resumeSelection(token: token)
+                        return
+                    }
                     // Retain the successfully captured pixels while the user
                     // decides how to handle an oversized lossless encoding.
                     let alert = NSAlert(); alert.messageText = L10n.text("capture.error.capacity"); alert.informativeText = L10n.text("capture.reduce.hint")
-                    alert.addButton(withTitle: L10n.text(directCopy ? "capture.reduce.copy" : "capture.reduce.edit")); alert.addButton(withTitle: L10n.text("action.cancel"))
-                    guard alert.runModal() == .alertFirstButtonReturn else { return }
+                    alert.addButton(withTitle: L10n.text(delivery.reductionAction)); alert.addButton(withTitle: L10n.text("action.cancel"))
+                    let response = alert.runModal()
+                    guard self.generation == token else { return }
+                    guard response == .alertFirstButtonReturn else { self.discardSelection(); return }
                     self.worker.async {
                         let reduced = Result { try CaptureRenderer.reduced(image) }
                         DispatchQueue.main.async {
                             guard self.generation == token else { return }
-                            switch reduced { case .success(let value): self.openImage(value, token: token, directCopy: directCopy, restoreFocus: application); case .failure(let error): self.showError(error) }
+                            switch reduced {
+                            case .success(let value): self.openImage(value, token: token, delivery: delivery, restoreFocus: application)
+                            case .failure(let error): self.showError(error); self.resumeSelection(token: token)
+                            }
                         }
                     }
                 }
@@ -255,33 +328,92 @@ final class CaptureCoordinator: NSObject {
         } catch { showError(error) }
     }
     private enum Output { case copy, pin, file(URL, UTType) }
-    private func produce(_ model: CaptureEditorModel, output: Output) {
-        guard !model.busy else { return }; model.busy = true
-        let document = model.document
-        worker.async { [weak self, weak model] in
-            let result = Result { () -> (CGImage, Data) in
+    private func deliverMarkup(_ document: CaptureDocument, to output: CaptureMarkupOutput, token: Int) {
+        switch output {
+        case .copy:
+            if document.annotations.isEmpty {
+                completeMarkupCopy(document.original.data, document: document, token: token)
+                return
+            }
+            render(document, output: .copy) { [weak self] result in
+                guard let self, self.generation == token else { return }
+                switch result {
+                case .success(let rendered):
+                    self.completeMarkupCopy(rendered.data, document: document, token: token)
+                case .failure(let error):
+                    self.showError(error)
+                    self.resumeSelection(token: token)
+                }
+            }
+        case .save:
+            selectionSavePanel = pickSelectionDestination(document.title) { [weak self] destination in
+                guard let self, self.generation == token else { return }
+                self.selectionSavePanel = nil
+                guard let (url, type) = destination else { self.resumeSelection(token: token); return }
+                self.pendingSelectionExports += 1
+                self.render(document, output: .file(url, type)) { [weak self] result in
+                    guard let self else { return }
+                    self.pendingSelectionExports -= 1
+                    switch result {
+                    case .success:
+                        if self.generation == token { self.discardSelection() }
+                        self.history.save(document) { success in
+                            if !success { self.showErrorMessage(L10n.text("capture.overlay.saveHistoryError")) }
+                        }
+                    case .failure(let error):
+                        self.showError(error)
+                        self.resumeSelection(token: token)
+                    }
+                }
+            }
+        case .editor:
+            discardSelection()
+            open(document)
+        }
+    }
+    private func completeMarkupCopy(_ data: Data, document: CaptureDocument, token: Int) {
+        guard copyImage(data) else {
+            showErrorMessage(L10n.text("capture.copy.failed"))
+            resumeSelection(token: token)
+            return
+        }
+        discardSelection()
+        AppLog.logger.info("capture delivered destination=clipboard session=\(token, privacy: .public)")
+        history.save(document) { success in
+            guard self.generation == token else { return }
+            if !success { self.showErrorMessage(L10n.text("capture.copy.saveError")) }
+        }
+    }
+    private func render(_ document: CaptureDocument, output: Output, completion: @escaping (Result<(image: CGImage, data: Data), Error>) -> Void) {
+        worker.async {
+            let result = Result { () -> (image: CGImage, data: Data) in
                 let image = try CaptureRenderer.image(document), type: UTType
                 if case .file(_, let format) = output { type = format } else { type = .png }
                 let data = try CaptureRenderer.encode(image, type: type)
                 if case .file(let url, _) = output { try data.write(to: url, options: .atomic) }
                 return (image, data)
             }
-            DispatchQueue.main.async {
-                guard let self, let model else { return }; model.busy = false
-                switch result {
-                case .failure(let error): model.status = error.localizedDescription
-                case .success(let result):
-                    switch output {
-                    case .copy:
-                        guard self.copyImage(result.1) else { model.status = CaptureFailure.storage.localizedDescription; return }
-                        model.status = L10n.text("capture.editor.copied")
-                    case .pin: self.pin(image: result.0, text: nil)
-                    case .file: model.status = L10n.text("capture.editor.exported")
-                    }
-                    self.history.save(document) { success in
-                        if success && model.document == document { model.dirty = false }
-                        if !success { model.status = self.history.error ?? CaptureFailure.storage.localizedDescription }
-                    }
+            DispatchQueue.main.async { completion(result) }
+        }
+    }
+    private func produce(_ model: CaptureEditorModel, output: Output) {
+        guard !model.busy else { return }; model.busy = true
+        let document = model.document
+        render(document, output: output) { [weak self, weak model] result in
+            guard let self, let model else { return }; model.busy = false
+            switch result {
+            case .failure(let error): model.status = error.localizedDescription
+            case .success(let rendered):
+                switch output {
+                case .copy:
+                    guard self.copyImage(rendered.data) else { model.status = CaptureFailure.storage.localizedDescription; return }
+                    model.status = L10n.text("capture.editor.copied")
+                case .pin: self.pin(image: rendered.image, text: nil)
+                case .file: model.status = L10n.text("capture.editor.exported")
+                }
+                self.history.save(document) { success in
+                    if success && model.document == document { model.dirty = false }
+                    if !success { model.status = self.history.error ?? CaptureFailure.storage.localizedDescription }
                 }
             }
         }
@@ -301,23 +433,32 @@ final class CaptureCoordinator: NSObject {
         if NSPasteboard.general.writeObjects([item]) { clipboard.recordGenerated(.text(text)) }
     }
     private func saveFile(_ editor: CaptureEditorController) {
-        guard let window = editor.window else { return }
+        guard let window = editor.window, !editor.model.busy else { return }
+        Self.chooseSaveDestination(title: editor.model.document.title, window: window, defaults: defaults) { [weak self, weak editor] destination in
+            guard let editor, let (url, type) = destination else { return }
+            self?.produce(editor.model, output: .file(url, type))
+        }
+    }
+    @discardableResult
+    private static func chooseSaveDestination(title: String, window: NSWindow?, defaults: UserDefaults, completion: @escaping (ExportDestination?) -> Void) -> NSSavePanel {
         let panel = NSSavePanel(), formats = NSPopUpButton()
         formats.addItems(withTitles: ["PNG", "JPEG"])
         let formatControl = CaptureExportFormatControl(panel: panel)
         formats.target = formatControl; formats.action = #selector(CaptureExportFormatControl.choose(_:))
-        let title = editor.model.document.title
         let stem = UTType(filenameExtension: (title as NSString).pathExtension)?.conforms(to: .image) == true ? (title as NSString).deletingPathExtension : title
         panel.allowedContentTypes = [.png]; panel.nameFieldStringValue = stem + ".png"
         panel.accessoryView = formats
-        if let path = UserDefaults.standard.string(forKey: "captureExportDirectory") { panel.directoryURL = URL(fileURLWithPath: path) }
-        panel.beginSheetModal(for: window) { [weak self, weak editor, formatControl] response in
+        if let path = defaults.string(forKey: "captureExportDirectory") { panel.directoryURL = URL(fileURLWithPath: path) }
+        let didClose: (NSApplication.ModalResponse) -> Void = { [defaults, formatControl] response in
             _ = formatControl
-            guard let self, let editor, response == .OK, let url = panel.url else { return }
+            guard response == .OK, let url = panel.url else { completion(nil); return }
             let type: UTType = formats.indexOfSelectedItem == 1 ? .jpeg : .png
-            UserDefaults.standard.set(url.deletingLastPathComponent().path, forKey: "captureExportDirectory")
-            self.produce(editor.model, output: .file(url, type))
+            defaults.set(url.deletingLastPathComponent().path, forKey: "captureExportDirectory")
+            completion((url, type))
         }
+        if let window { panel.beginSheetModal(for: window, completionHandler: didClose) }
+        else { panel.begin(completionHandler: didClose); NSApp.activate(ignoringOtherApps: true) }
+        return panel
     }
     private func importSticker(_ editor: CaptureEditorController) {
         let panel = NSOpenPanel(); panel.allowedContentTypes = [.image]

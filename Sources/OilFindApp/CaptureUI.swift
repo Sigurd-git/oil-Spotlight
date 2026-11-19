@@ -6,11 +6,23 @@ private final class CaptureOverlayWindow: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 final class CaptureOverlayController {
+    enum Mode { case confirm, annotate, copyImmediately }
+
     #if DEBUG
     static func snapshotView() -> NSView {
         let view = CaptureOverlayView(frame: CGRect(x: 0, y: 0, width: 900, height: 560))
-        view.selection = CGRect(x: 160, y: 100, width: 570, height: 340)
-        view.label = L10n.text("capture.overlay.confirmHint"); view.showControls(true); return view
+        view.selection = CGRect(x: 160, y: 124, width: 570, height: 340)
+        var markup = CaptureMarkup()
+        markup.tool = .rectangle
+        markup.beginStroke(at: CGPoint(x: 95, y: 83))
+        markup.endStroke(at: CGPoint(x: 263, y: 166))
+        markup.tool = .arrow
+        markup.beginStroke(at: CGPoint(x: 365, y: 230))
+        markup.endStroke(at: CGPoint(x: 268, y: 158))
+        view.markup = markup
+        view.label = ""
+        view.showMarkupToolbar(true)
+        return view
     }
     #endif
     private var windows: [NSWindow] = [], views: [CaptureOverlayView] = []
@@ -18,21 +30,29 @@ final class CaptureOverlayController {
     private var windowMode: Bool, anchor: CGPoint?, current: CGPoint?
     private var hovered: CaptureWindow?
     private(set) var pendingSelection: CaptureSelection?
-    private let requiresConfirmation: Bool
+    private let mode: Mode
+    private var markup: CaptureMarkup?
+    private weak var textEntryView: CaptureOverlayView?
+    private var submitted = false
     private var keyMonitor: Any?
     private var focusObserver: NSObjectProtocol?
     private var activationObserver: NSObjectProtocol?
     private let frontmostProcessID: () -> pid_t?
     private var activeProcessID: pid_t?
     var onSelect: ((CaptureSelection) -> Void)?, onCancel: (() -> Void)?
-    init(catalog: CaptureCatalog, windowMode: Bool, requiresConfirmation: Bool = true,
+    var onMarkupFinish: ((CaptureMarkupSubmission) -> Void)?
+    var hasMarkup: Bool { markup?.canUndo == true || textEntryView?.hasText == true }
+    init(catalog: CaptureCatalog, windowMode: Bool, mode: Mode = .confirm,
          frontmostProcessID: @escaping () -> pid_t? = { NSWorkspace.shared.frontmostApplication?.processIdentifier }) {
         self.catalog = catalog; self.windowMode = windowMode
-        self.requiresConfirmation = requiresConfirmation
+        self.mode = mode
+        markup = mode == .annotate ? CaptureMarkup() : nil
         self.frontmostProcessID = frontmostProcessID
         mainHeight = NSScreen.screens.first?.frame.height ?? CGDisplayBounds(CGMainDisplayID()).height
     }
     func present() {
+        guard windows.isEmpty else { return }
+        submitted = false
         activeProcessID = frontmostProcessID()
         for display in catalog.displays {
             // Like the launcher, acquire keyboard focus without waiting for app activation.
@@ -81,6 +101,30 @@ final class CaptureOverlayController {
     }
     @discardableResult
     func handleKey(_ event: NSEvent) -> Bool {
+        if let textEntryView {
+            if textEntryView.isEditingText {
+                guard !textEntryView.hasMarkedText else { return false }
+                switch event.keyCode {
+                case 53: onCancel?()
+                case 36, 76: commitText(); redraw()
+                default: return false
+                }
+                return true
+            }
+            commitText()
+            redraw()
+        }
+        let modifiers = event.modifierFlags.intersection([.command, .shift, .option, .control])
+        if markup != nil, pendingSelection != nil, modifiers == .command || modifiers == [.command, .shift] {
+            switch event.keyCode {
+            case 6: modifiers.contains(.shift) ? redo() : undo()
+            case 8 where modifiers == .command: finishMarkup(.copy)
+            case 1 where modifiers == .command: finishMarkup(.save)
+            default: return false
+            }
+            return true
+        }
+        guard modifiers.isDisjoint(with: [.command, .option, .control]) else { return false }
         switch event.keyCode {
         case 53: onCancel?()
         case 36, 76: confirmSelection()
@@ -102,14 +146,40 @@ final class CaptureOverlayController {
         guard pendingSelection == nil else { return }
         current = position(for: event); hovered = catalog.windows.first { $0.frame.contains(current!) }; redraw()
     }
+    func drag(with event: NSEvent) {
+        if markup?.stroke != nil, let rect = selectedRect {
+            markup?.updateStroke(to: markupPoint(for: event, in: rect))
+            for view in views { view.markup = markup; view.needsDisplay = true }
+        } else {
+            move(with: event)
+        }
+    }
     func down(with event: NSEvent) {
-        // Drawing again replaces a pending window candidate with a region.
+        commitText()
+        if pendingSelection != nil, let rect = selectedRect, rect.contains(position(for: event)),
+           let tool = markup?.tool, tool != .select {
+            let point = markupPoint(for: event, in: rect)
+            if tool == .text, let view = event.window?.contentView as? CaptureOverlayView {
+                if view.beginText(at: point, color: markup?.color ?? CaptureColor()) { textEntryView = view }
+            } else if tool != .text {
+                markup?.beginStroke(at: point)
+            }
+            redraw()
+            return
+        }
         if pendingSelection != nil { reselect() } else { clearSelection() }
         move(with: event); anchor = current
     }
     func up(with event: NSEvent) {
+        if pendingSelection != nil {
+            if markup?.stroke != nil, let rect = selectedRect {
+                markup?.endStroke(at: markupPoint(for: event, in: rect))
+                redraw()
+            }
+            return
+        }
         move(with: event)
-        if windowMode, let hovered { select(.window(hovered.id)) }
+        if windowMode, let hovered { select(.window(hovered.id, alignToFrame: markup != nil)) }
         else if let anchor, let current {
             let rect = CGRect.between(anchor, current).integral
             if rect.width >= 2 && rect.height >= 2 { select(.region(rect)) }
@@ -117,32 +187,81 @@ final class CaptureOverlayController {
     }
     func select(_ selection: CaptureSelection) {
         pendingSelection = selection
-        if requiresConfirmation { redraw() } else { confirmSelection() }
+        if mode == .copyImmediately { confirmSelection() } else { redraw() }
     }
     func confirmSelection() {
+        if markup != nil { finishMarkup(.copy); return }
         guard let selection = pendingSelection else { return }
         pendingSelection = nil; onSelect?(selection)
     }
+    func finishMarkup(_ output: CaptureMarkupOutput) {
+        guard !submitted, let selection = pendingSelection, let rect = selectedRect,
+              !rect.isEmpty, markup?.stroke == nil, let onMarkupFinish else { return }
+        commitText()
+        guard let markup else { return }
+        submitted = true
+        onMarkupFinish(CaptureMarkupSubmission(selection: selection, size: rect.size, annotations: markup.annotations, output: output))
+    }
+    func chooseTool(_ tool: CaptureTool) {
+        commitText()
+        let next: CaptureTool = markup?.tool == tool ? .select : tool
+        markup?.tool = next
+        redraw()
+    }
+    func chooseColor(_ color: CaptureColor) {
+        commitText()
+        markup?.color = color
+        redraw()
+    }
+    func undo() { commitText(); markup?.undo(); redraw() }
+    func redo() { commitText(); markup?.redo(); redraw() }
+    private func commitText() {
+        guard let view = textEntryView else { return }
+        textEntryView = nil
+        if let (value, rect) = view.takeText() { markup?.addText(value, in: rect) }
+    }
+    private func markupPoint(for event: NSEvent, in rect: CGRect) -> CGPoint {
+        let point = position(for: event)
+        return CGPoint(x: min(rect.width, max(0, point.x - rect.minX)),
+                       y: min(rect.height, max(0, point.y - rect.minY)))
+    }
     func reselect() { windowMode = false; clearSelection() }
-    private func clearSelection() { pendingSelection = nil; anchor = nil; current = nil; hovered = nil; redraw() }
+    private func clearSelection() {
+        _ = textEntryView?.takeText()
+        textEntryView = nil
+        if markup != nil { markup = CaptureMarkup() }
+        pendingSelection = nil; anchor = nil; current = nil; hovered = nil
+        redraw()
+    }
     var selectedRect: CGRect? {
         if let pendingSelection {
             switch pendingSelection {
             case .region(let rect): return rect
-            case .window(let id): return catalog.windows.first { $0.id == id }?.frame
+            case .window(let id, _): return catalog.windows.first { $0.id == id }?.frame
             }
         }
         return windowMode ? hovered?.frame : anchor.flatMap { start in current.map { CGRect.between(start, $0) } }
     }
     private func redraw() {
-        for view in views {
-            if let rect = selectedRect, let window = view.window {
+        let rect = selectedRect
+        let toolbarDisplay = current.flatMap { point in catalog.displays.first { $0.frame.contains(point) } }
+            ?? catalog.displays.first { display in rect.map { display.frame.intersects($0) } == true }
+        for (view, display) in zip(views, catalog.displays) {
+            if let rect, let window = view.window {
                 let cocoa = CaptureGeometry.cocoa(rect, mainHeight: mainHeight)
                 view.selection = view.convert(window.convertFromScreen(cocoa), from: nil)
             } else { view.selection = nil }
-            view.label = pendingSelection != nil ? L10n.text("capture.overlay.confirmHint") : L10n.text(requiresConfirmation ? "capture.overlay.hint" : "capture.overlay.copyHint")
-            let mouse = current.map { CGPoint(x: $0.x, y: mainHeight - $0.y) }
-            view.showControls(pendingSelection != nil && mouse.map { view.window?.frame.contains($0) == true } == true)
+            let showsControls = pendingSelection != nil && display.id == toolbarDisplay?.id
+            if pendingSelection != nil, let markup {
+                view.markup = markup
+                view.label = ""
+                view.showMarkupToolbar(showsControls)
+            } else {
+                view.markup = nil
+                view.label = pendingSelection != nil ? L10n.text("capture.overlay.confirmHint") : L10n.text(mode == .copyImmediately ? "capture.overlay.copyHint" : "capture.overlay.hint")
+                view.showMarkupToolbar(false)
+                view.showControls(showsControls)
+            }
             view.needsDisplay = true
         }
     }
@@ -152,19 +271,29 @@ final class CaptureOverlayController {
             return CGWindowID(exactly: window.windowNumber)
         })
     }
-    func close() {
+    func hide() {
+        commitText()
+        markup?.cancelStroke()
         if let keyMonitor { NSEvent.removeMonitor(keyMonitor); self.keyMonitor = nil }
         if let focusObserver { NotificationCenter.default.removeObserver(focusObserver); self.focusObserver = nil }
         if let activationObserver { NSWorkspace.shared.notificationCenter.removeObserver(activationObserver); self.activationObserver = nil }
-        activeProcessID = nil; pendingSelection = nil
+        activeProcessID = nil
         windows.forEach { $0.orderOut(nil); $0.close() }; windows = []; views = []
     }
+    func close() { hide(); clearSelection() }
     deinit { close() }
 }
 private final class CaptureOverlayView: NSView {
     weak var controller: CaptureOverlayController?
     var selection: CGRect?, label = L10n.text("capture.overlay.hint")
+    var markup: CaptureMarkup?
     private var controls: CaptureSelectionControls?
+    private var markupToolbar: CaptureMarkupToolbar?
+    private var textField: NSTextField?
+    private var textRect: CGRect?
+    var isEditingText: Bool { textField?.currentEditor() != nil }
+    var hasText: Bool { !(textField?.currentEditor()?.string ?? textField?.stringValue ?? "").isEmpty }
+    var hasMarkedText: Bool { (textField?.currentEditor() as? NSTextView)?.hasMarkedText() == true }
     override var acceptsFirstResponder: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func keyDown(with event: NSEvent) {
@@ -185,6 +314,64 @@ private final class CaptureOverlayView: NSView {
                                   y: min(max(58, rect.minY - 52), max(58, bounds.maxY - 56)), width: width, height: 44)
         controls?.isHidden = false
     }
+    func showMarkupToolbar(_ visible: Bool) {
+        guard visible, let selection, let markup else { markupToolbar?.isHidden = true; return }
+        let portion = selection.intersection(bounds)
+        guard !portion.isEmpty else { markupToolbar?.isHidden = true; return }
+        let toolbar: CaptureMarkupToolbar
+        if let markupToolbar {
+            toolbar = markupToolbar
+        } else {
+            toolbar = CaptureMarkupToolbar(chooseTool: { [weak self] in self?.controller?.chooseTool($0) },
+                                           chooseColor: { [weak self] in self?.controller?.chooseColor($0) },
+                                           undo: { [weak self] in self?.controller?.undo() },
+                                           redo: { [weak self] in self?.controller?.redo() },
+                                           reselect: { [weak self] in self?.controller?.reselect() },
+                                           cancel: { [weak self] in self?.controller?.onCancel?() },
+                                           finish: { [weak self] in self?.controller?.finishMarkup($0) })
+            markupToolbar = toolbar
+            addSubview(toolbar)
+        }
+        let size = toolbar.update(from: markup, availableWidth: bounds.width - 24)
+        let bottom = bounds.minY + 6
+        let top = bounds.maxY - 6
+        let below = portion.minY - bottom, above = top - portion.maxY
+        let placeBelow = below >= size.height || (above < size.height && below >= above)
+        let y = placeBelow ? max(bottom, portion.minY - size.height - 8) : min(top - size.height, portion.maxY + 8)
+        let x = max(12, min(portion.maxX - size.width, bounds.maxX - size.width - 12))
+        toolbar.frame = CGRect(origin: CGPoint(x: x, y: y), size: size)
+        toolbar.isHidden = false
+    }
+    func beginText(at point: CGPoint, color: CaptureColor) -> Bool {
+        guard let selection, let window else { return false }
+        let region = bounds.intersection(selection).insetBy(dx: 3, dy: 3)
+        guard !region.isNull, region.width >= 64, region.height >= 30 else { return false }
+        let x = max(region.minX, min(selection.minX + point.x, region.maxX - 64))
+        let top = max(region.minY + 30, min(selection.maxY - point.y, region.maxY))
+        let frame = CGRect(x: x, y: top - 30, width: min(250, region.maxX - x), height: 30)
+        let field = NSTextField(frame: frame)
+        field.font = .systemFont(ofSize: CaptureMarkup.textSize)
+        field.textColor = color.nsColor
+        field.backgroundColor = color.red + color.green + color.blue > 1.4 ? .black : .white
+        field.placeholderString = CaptureTool.text.title
+        field.usesSingleLineMode = true
+        field.focusRingType = .none
+        addSubview(field)
+        textField = field
+        textRect = CGRect(x: x - selection.minX + 3, y: selection.maxY - top + 3, width: frame.width - 6, height: 27)
+        if window.makeFirstResponder(field) { return true }
+        _ = takeText()
+        return false
+    }
+    func takeText() -> (String, CGRect)? {
+        guard let field = textField, let rect = textRect else { return nil }
+        let value = field.currentEditor()?.string ?? field.stringValue
+        if field.currentEditor() != nil { window?.makeFirstResponder(self) }
+        field.removeFromSuperview()
+        textField = nil
+        textRect = nil
+        return (value, rect)
+    }
     override func updateTrackingAreas() {
         trackingAreas.forEach(removeTrackingArea)
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .activeAlways, .inVisibleRect], owner: self)); super.updateTrackingAreas()
@@ -194,7 +381,7 @@ private final class CaptureOverlayView: NSView {
         window?.makeKey(); window?.makeFirstResponder(self)
         controller?.down(with: event)
     }
-    override func mouseDragged(with event: NSEvent) { controller?.move(with: event) }
+    override func mouseDragged(with event: NSEvent) { controller?.drag(with: event) }
     override func mouseUp(with event: NSEvent) { controller?.up(with: event) }
     override func draw(_ dirtyRect: NSRect) {
         NSColor.black.withAlphaComponent(0.22).setFill(); bounds.fill()
@@ -204,6 +391,19 @@ private final class CaptureOverlayView: NSView {
             context.saveGState(); context.setBlendMode(.copy)
             context.setFillColor(NSColor.black.withAlphaComponent(0.02).cgColor)
             context.fill(selection); context.restoreGState()
+            if let markup {
+                context.saveGState()
+                context.clip(to: selection)
+                context.translateBy(x: selection.minX, y: selection.maxY)
+                context.scaleBy(x: 1, y: -1)
+                for item in markup.annotations {
+                    CaptureRenderer.draw(item, resources: [:], original: nil, originalSize: selection.size, in: context)
+                }
+                if let item = markup.stroke {
+                    CaptureRenderer.draw(item, resources: [:], original: nil, originalSize: selection.size, in: context)
+                }
+                context.restoreGState()
+            }
             NSColor.controlAccentColor.setStroke(); let path = NSBezierPath(rect: selection); path.lineWidth = 2; path.stroke()
         }
         let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 16, weight: .medium), .foregroundColor: NSColor.white, .backgroundColor: NSColor.black.withAlphaComponent(0.7)]
