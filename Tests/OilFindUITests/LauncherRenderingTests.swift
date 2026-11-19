@@ -38,4 +38,34 @@ final class LauncherRenderingTests: XCTestCase {
             XCTAssertNotNil(cell.subviews.compactMap { $0 as? NSImageView }.first?.image, row.identity)
         }
     }
+
+    func testAllRefreshLeavesUnchangedVisibleRowsAndUpdatesTopicTextInPlace() throws {
+        _ = NSApplication.shared
+        let frame = NSRect(x: 0, y: 0, width: Theme.panelSize.width, height: 300)
+        let window = NSWindow(contentRect: frame, styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let view = ResultsView(frame: frame), icon = NSImage(size: NSSize(width: 32, height: 32))
+        window.contentView = view; window.orderFront(nil)
+        let table = try XCTUnwrap(view.subviews.compactMap { ($0 as? NSScrollView)?.documentView as? NSTableView }.first)
+        func snapshot(detail: String) -> SearchSnapshot {
+            let topic = AdditionalSearchItem(id: "fixture", title: "Example topic", detail: detail, location: "Fixture",
+                                             modified: .distantPast, icon: icon, actions: [])
+            return SearchSnapshot(raw: "example", scope: .all, leading: [
+                .app(LauncherApp(name: "Example", path: "/Applications/Example.app")), .additional(topic)
+            ])
+        }
+        view.show(snapshot(detail: "Previous excerpt"), selection: 1)
+        window.displayIfNeeded()
+        let appCell = try XCTUnwrap(table.view(atColumn: 0, row: 0, makeIfNecessary: false))
+        var selectionUpdates = 0
+        view.onSelection = { selectionUpdates += 1 }
+        view.refresh(snapshot(detail: "Previous excerpt"))
+        XCTAssertEqual(selectionUpdates, 0)
+        view.refresh(snapshot(detail: "Updated excerpt"))
+        let topicCell = try XCTUnwrap(table.view(atColumn: 0, row: 1, makeIfNecessary: true))
+        XCTAssertTrue(topicCell.subviews.compactMap { $0 as? NSTextField }.contains { $0.stringValue == "Updated excerpt · Fixture" })
+        XCTAssertTrue(table.view(atColumn: 0, row: 0, makeIfNecessary: false) === appCell)
+        XCTAssertEqual(view.selectedAdditional?.id, "fixture")
+    }
 }

@@ -21,6 +21,8 @@ final class LauncherToolsTests: XCTestCase {
         assertValue("5/2", "2.5")
         assertValue("2+3*4", "14")
         assertValue("(2+3)*4", "20")
+        assertValue("(23+324)*2131", "739457")
+        assertValue("（２３＋３２４）＊２１３１", "739457")
         assertValue("2^3^2", "512")
         assertValue("-2^2", "-4")
         assertValue("(-2)^2", "4")
@@ -39,10 +41,19 @@ final class LauncherToolsTests: XCTestCase {
         XCTAssertEqual(answer?.detail, "5 / 2 = 2.5")
     }
 
+    func testScientificFunctionsComposeWithArithmeticAndConstants() {
+        assertValue("sqrt(81)+2^3", "17")
+        assertValue("SIN(π/2)+cos(0)", "2")
+        assertValue("cbrt(-8)+abs(-5)", "3")
+        assertValue("log(1000)+ln(e)+exp(0)", "5")
+        assertValue("sqrt((3^2+4^2)^2)", "25")
+    }
+
     func testIncompleteInvalidAndNonFiniteArithmeticIsRejected() {
         for input in ["", " ", "2+", "(2+3", "2+3)", "2**3", "2 3", "2(3)", "2+3junk", "1e+*2",
                       "1/0", "0/0", "1/-0", "10^1000", "1e309+1", "(-1)^0.5", "1e308*10/10",
-                      "sqrt(4)", "NaN+1", "infinity", "150*20%=30", "1; print(1)"] {
+                      "sqrt(4", "sqrt(-1)", "ln(0)", "exp(1000)", "sin(1,2)", "unknown(4)", "pi", "e",
+                      "２０２６－１１－１９", "NaN+1", "infinity", "150*20%=30", "1; print(1)"] {
             XCTAssertNil(LauncherTools.evaluate(input), input)
         }
     }
@@ -58,6 +69,8 @@ final class LauncherToolsTests: XCTestCase {
         XCTAssertNil(LauncherTools.evaluate(String(repeating: "1+", count: 256) + "1"))
         assertValue("1" + String(repeating: "^1", count: 32), "1")
         XCTAssertNil(LauncherTools.evaluate("1" + String(repeating: "^1", count: 33)))
+        assertValue(String(repeating: "sin(", count: 32) + "0" + String(repeating: ")", count: 32), "0")
+        XCTAssertNil(LauncherTools.evaluate(String(repeating: "sin(", count: 33) + "0" + String(repeating: ")", count: 33)))
     }
 
     func testEnglishChineseLengthAndMassAliases() throws {

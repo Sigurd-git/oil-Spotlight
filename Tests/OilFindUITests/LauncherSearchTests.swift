@@ -36,10 +36,11 @@ final class LauncherSearchTests: XCTestCase {
     private func search(_ coordinator: SearchCoordinator, raw: String, scope: SearchScope = .all,
                         store: IndexStore? = nil, apps: [LauncherApp] = [], clipboard: [ClipboardEntry] = [],
                         clipboardEnabled: Bool = false, composing: Bool = false,
-                        calculator: Bool = false, web: Bool = false) {
+                        calculator: Bool = false, web: Bool = false, allResultsOrder: AllResultsOrder = .defaultOrder) {
         coordinator.search(raw: raw, scope: scope, options: .init(sort: .name, ascending: true), store: store,
                            editingRange: nil, composing: composing, apps: apps, clipboard: clipboard,
-                           clipboardEnabled: clipboardEnabled, calculator: calculator, web: web, engine: .duckDuckGo)
+                           clipboardEnabled: clipboardEnabled, calculator: calculator, web: web, engine: .duckDuckGo,
+                           allResultsOrder: allResultsOrder)
     }
 
     // Queue fences run after work enqueues its main-thread publication. No timing sleeps.
@@ -58,7 +59,7 @@ final class LauncherSearchTests: XCTestCase {
                       "regex:^notes", "path:Documents", "!PATH:private", "case:README", "notes *.md", "photo?.jpg"] {
             XCTAssertEqual(SearchRoute.effectiveScope(query, requested: .all), .files, query)
         }
-        for query in ["notes", "系统设置", "report.pdf", "", "150*20%", "5/2", "https://example.com/path?q=1",
+        for query in ["notes", "系统设置", "report.pdf", "", "150*20%", "5/2", "(23+324)*2131", "sin(π/2)", "https://example.com/path?q=1",
                       "example.com/docs", "web: docs/report.pdf", "10公里转英里"] {
             XCTAssertEqual(SearchRoute.effectiveScope(query, requested: .all), .all, query)
         }
@@ -110,14 +111,14 @@ final class LauncherSearchTests: XCTestCase {
         XCTAssertEqual(view.selectedAdditional?.id, topic.id)
     }
 
-    func testNonemptyComposeDeduplicatesApplicationsBeyondPromotedFilePrefix() {
+    func testNonemptyComposeDeduplicatesApplicationsThroughoutFileResults() {
         let names = (0..<30).map { String(format: "tool-%02d.txt", $0) } + ["tool-Z.app"]
         let files = result(store(names), raw: "tool")
         let app = LauncherApp(name: "tool", path: files.store.rootPath + "/tool-Z.app")
         let snapshot = SearchCoordinator.compose(raw: "tool", scope: .all, fileResult: files, extras: [.app(app), .app(app)])
         let rows = identities(snapshot)
         XCTAssertEqual(snapshot.leading.first?.identity, "file:" + app.path)
-        XCTAssertEqual(snapshot.leading.count, 5)
+        XCTAssertEqual(snapshot.leading.count, 1)
         XCTAssertTrue(snapshot.removedOffsets.contains(30))
         XCTAssertEqual(snapshot.count, files.items.count)
         XCTAssertEqual(Set(rows).count, rows.count)
@@ -139,28 +140,42 @@ final class LauncherSearchTests: XCTestCase {
     func testApplicationDeduplicationAcrossVectorBlocksAndScalarTail() {
         let names = (0..<259).map { "needle-\($0).app" }
         let files = result(store(names), raw: "needle")
-        let offsets = [0, 15, 16, 255, 258]
-        let apps = offsets.map { offset in
-            LauncherRow.app(LauncherApp(name: names[offset], path: files.store.rootPath + "/" + names[offset]))
+        for offsets in [[0, 15, 16, 255, 258], [0, 1, 2, 3, 4, 15, 16, 254, 255, 258]] {
+            let apps = offsets.map { offset in
+                LauncherRow.app(LauncherApp(name: names[offset], path: files.store.rootPath + "/" + names[offset]))
+            }
+            let order = AllResultsOrder([.files, .apps, .settings, .clipboard])
+            let snapshot = SearchCoordinator.compose(raw: "needle", scope: .all, fileResult: files, extras: apps,
+                                                     allResultsOrder: order)
+            XCTAssertEqual(snapshot.removedOffsets, offsets)
+            XCTAssertEqual(snapshot.count, names.count)
+            XCTAssertEqual(Set(identities(snapshot)), Set(names.map { "file:" + files.store.rootPath + "/" + $0 }))
+            XCTAssertEqual(Array(identities(snapshot).suffix(apps.count)), apps.map(\.identity))
         }
-        let snapshot = SearchCoordinator.compose(raw: "needle", scope: .all, fileResult: files, extras: apps)
-        XCTAssertEqual(snapshot.removedOffsets, offsets)
-        XCTAssertEqual(snapshot.count, names.count)
-        XCTAssertEqual(Set(identities(snapshot)).count, names.count)
-        XCTAssertEqual(Set(identities(snapshot)), Set(names.map { "file:" + files.store.rootPath + "/" + $0 }))
     }
 
-    func testStablePromotionOrderAndScopeIsolation() {
-        let appA = LauncherApp(name: "notes", path: "/Applications/A.app")
-        let appB = LauncherApp(name: "notes", path: "/Applications/B.app")
+    func testDefaultAndCustomSourceOrderWithScopeIsolation() {
+        let apps = (0..<7).map { LauncherApp(name: "Project notes", path: "/Applications/Notes\($0).app") }
         let setting = SystemSetting(id: "test-notes", englishName: "notes", chineseName: "notes", symbol: "gear",
                                     url: URL(string: "https://example.com/settings")!)
         let files = result(store(["notes", "notes.txt"]), raw: "notes")
+        let clipboard = LauncherRow.clipboard(ClipboardEntry(text: "notes"))
+        let preference = LauncherRow.setting(setting)
+        let web = LauncherRow.web("notes", WebSearchEngine.duckDuckGo.url(for: "notes"))
+        let appRows = apps.map(LauncherRow.app)
+        let fileIDs = ["notes", "notes.txt"].map { "file:" + files.store.rootPath + "/" + $0 }
         let snapshot = SearchCoordinator.compose(raw: "notes", scope: .all, fileResult: files,
-                                                 extras: [.setting(setting), .app(appB), .app(appA)])
-        XCTAssertEqual(Array(identities(snapshot).prefix(3)), ["file:" + appB.path, "file:" + appA.path, "setting:test-notes"])
-        let apps = SearchCoordinator.compose(raw: "notes", scope: .apps, fileResult: files, extras: [.app(appA)])
-        XCTAssertNil(apps.fileResult); XCTAssertEqual(apps.count, 1)
+                                                 extras: [preference, clipboard] + appRows, trailing: [web])
+        XCTAssertEqual(identities(snapshot), appRows.map(\.identity) + fileIDs + [preference.identity, clipboard.identity, web.identity])
+        let order = AllResultsOrder([.clipboard, .files, .settings, .apps])
+        let custom = SearchCoordinator.compose(raw: "notes", scope: .all, fileResult: files,
+                                               extras: [preference, clipboard] + appRows, trailing: [web], allResultsOrder: order)
+        XCTAssertEqual(identities(custom), [clipboard.identity] + fileIDs + [preference.identity] + appRows.map(\.identity) + [web.identity])
+        XCTAssertEqual(custom.position(of: fileIDs[0]), 1)
+        XCTAssertEqual(custom.position(of: appRows[0].identity), 4)
+        XCTAssertEqual(identities(custom.replacingFilePresentation(nil)), [clipboard.identity, preference.identity] + appRows.map(\.identity) + [web.identity])
+        let appOnly = SearchCoordinator.compose(raw: "notes", scope: .apps, fileResult: files, extras: appRows, allResultsOrder: order)
+        XCTAssertNil(appOnly.fileResult); XCTAssertEqual(identities(appOnly), appRows.map(\.identity))
         let fileOnly = SearchCoordinator.compose(raw: "notes", scope: .files, fileResult: files, extras: [])
         XCTAssertEqual(fileOnly.count, 2); XCTAssertTrue(fileOnly.leading.isEmpty)
     }
@@ -259,7 +274,7 @@ final class LauncherSearchTests: XCTestCase {
         XCTAssertEqual(updates.last?.1, true)
     }
 
-    func testLateFilesKeepTheSelectedApplicationIdentityWhenLeadingRowsGrow() {
+    func testLateFilesKeepTheSelectedApplicationIdentityWhenFilesAreOrderedFirst() {
         _ = NSApplication.shared
         let fileQueue = DispatchQueue(label: "LauncherSearchTests.selection-files")
         let sourceQueue = DispatchQueue(label: "LauncherSearchTests.selection-sources")
@@ -273,7 +288,7 @@ final class LauncherSearchTests: XCTestCase {
             if refresh { view.refresh(found, preserveSelection: true) }
             else { view.show(found, selection: 1) }
         }
-        search(coordinator, raw: "needle", store: store(["needle"]), apps: apps)
+        search(coordinator, raw: "needle", store: store(["needle"]), apps: apps, allResultsOrder: AllResultsOrder([.files]))
         drain([sourceQueue])
         XCTAssertEqual(view.selectedLauncherRow?.identity, "file:" + apps[1].path)
         XCTAssertEqual(view.selectedRow, 1)
@@ -281,7 +296,7 @@ final class LauncherSearchTests: XCTestCase {
         drain([fileQueue])
         XCTAssertEqual(view.selectedRow, 2)
         XCTAssertEqual(view.selectedLauncherRow?.identity, "file:" + apps[1].path)
-        XCTAssertEqual(view.snapshot?.leading.count, 3)
+        XCTAssertTrue(view.snapshot?.leading.isEmpty == true)
     }
 
     func testSelectedFileAndViewportReturnAfterShortSourceOnlyPendingSnapshot() throws {
@@ -680,6 +695,24 @@ final class LauncherSearchTests: XCTestCase {
         XCTAssertNil(updates.last?.fileResult)
     }
 
+    func testAllScopeIncludesMatchingClipboardEntriesOnlyForNonemptyOptedInSearches() {
+        let sourceQueue = DispatchQueue(label: "LauncherSearchTests.all-clipboard")
+        let coordinator = SearchCoordinator(sourceQueue: sourceQueue)
+        let match = ClipboardEntry(text: "Meeting notes for Friday")
+        let other = ClipboardEntry(text: "Friday shopping")
+        var latest: SearchSnapshot?
+        coordinator.onUpdate = { snapshot, _ in latest = snapshot }
+        search(coordinator, raw: "meeting Friday", clipboard: [match, other], clipboardEnabled: true)
+        drain([sourceQueue])
+        XCTAssertEqual(latest?.row(at: 0)?.identity, LauncherRow.clipboard(match).identity)
+        XCTAssertEqual(latest?.count, 1)
+        for query in ["meeting Friday", ""] {
+            search(coordinator, raw: query, clipboard: [match, other], clipboardEnabled: query.isEmpty)
+            drain([sourceQueue])
+            XCTAssertEqual(latest?.count, 0)
+        }
+    }
+
     func testCalculatorWebAndCompositionUseRealCoordinatorSourcePipeline() {
         let sourceQueue = DispatchQueue(label: "LauncherSearchTests.tools")
         let coordinator = SearchCoordinator(sourceQueue: sourceQueue)
@@ -689,6 +722,13 @@ final class LauncherSearchTests: XCTestCase {
         drain([sourceQueue])
         XCTAssertEqual(identities(updates.last!), ["answer:150*20%", "web:150*20%"])
         XCTAssertEqual(updates.last?.row(at: 0)?.title, "30")
+        let expression = "（２３＋３２４）×２１３１"
+        let clip = ClipboardEntry(text: expression)
+        search(coordinator, raw: expression, clipboard: [clip], clipboardEnabled: true, calculator: true, web: true,
+               allResultsOrder: AllResultsOrder([.clipboard]))
+        drain([sourceQueue])
+        XCTAssertEqual(updates.last?.row(at: 0)?.title, "739457")
+        XCTAssertEqual(updates.last?.row(at: 1)?.identity, LauncherRow.clipboard(clip).identity)
         search(coordinator, raw: "web: 猫 & dogs", web: true)
         drain([sourceQueue])
         XCTAssertEqual(identities(updates.last!), ["web:猫 & dogs"])
@@ -701,7 +741,7 @@ final class LauncherSearchTests: XCTestCase {
     func testLauncherSnapshotFixturesAreSyntheticAndHaveExpectedScopes() throws {
         let unified = try Snapshot.launcherFixture(state: "unified", query: "display")
         XCTAssertEqual(unified.snapshot.scope, .all)
-        XCTAssertNil(unified.snapshot.fileResult)
+        XCTAssertEqual(unified.snapshot.fileResult?.store.rootPath, "/Users/demo/Documents")
         XCTAssertTrue(identities(unified.snapshot).contains("file:/Users/demo/Applications/Display Studio.app"))
         XCTAssertTrue(identities(unified.snapshot).contains("setting:displays"))
         XCTAssertTrue(identities(unified.snapshot).contains("file:/Users/demo/Documents/Display review.pdf"))
@@ -747,5 +787,5 @@ private final class CountingPasteAdapter: ClipboardPasteAdapting {
     func isRunning(_ target: ClipboardPasteTarget) -> Bool { calls += 1; return true }
     func activate(_ target: ClipboardPasteTarget, completion: @escaping (Bool) -> Void) { calls += 1; completion(true) }
     func hasFocus(_ target: ClipboardPasteTarget) -> Bool { calls += 1; return true }
-    func sendCommandV(to target: ClipboardPasteTarget) -> Bool { calls += 1; return true }
+    func paste(to target: ClipboardPasteTarget, isClipboardCurrent: () -> Bool) -> PasteOutcome { calls += 1; return .sent }
 }

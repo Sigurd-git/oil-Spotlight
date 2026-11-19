@@ -47,7 +47,7 @@ enum LauncherTools {
             return ToolAnswer(expression: expression, value: value, detail: "\(expression) = \(value)")
         }
         // Dates and version-like filenames should keep their search meaning.
-        guard expression.range(of: #"^\d{4}-\d{2}-\d{2}$"#, options: .regularExpression) == nil else { return nil }
+        guard normalized.range(of: #"^\d{4}-\d{2}-\d{2}$"#, options: .regularExpression) == nil else { return nil }
         var parser = ArithmeticParser(normalized)
         guard let result = parser.parse(), parser.hasSyntax else { return nil }
         let value = format(result)
@@ -79,9 +79,11 @@ enum LauncherTools {
     }
 
     private static func normalize(_ text: String) -> String {
-        text.replacingOccurrences(of: "×", with: "*")
+        text.folding(options: .widthInsensitive, locale: nil)
+            .replacingOccurrences(of: "×", with: "*")
             .replacingOccurrences(of: "÷", with: "/")
             .replacingOccurrences(of: "−", with: "-")
+            .replacingOccurrences(of: "π", with: "pi")
     }
 
     private static func format(_ value: Double) -> String {
@@ -277,10 +279,17 @@ enum LauncherTools {
 
 private extension UInt8 {
     var isDigit: Bool { (48...57).contains(self) }
+    var isASCIILetter: Bool { (65...90).contains(self) || (97...122).contains(self) }
     var isHexDigit: Bool { isDigit || (65...70).contains(self) || (97...102).contains(self) }
 }
 
 private struct ArithmeticParser {
+    private static let functions: [String: (Double) -> Double] = [
+        "sqrt": sqrt, "cbrt": cbrt, "abs": abs,
+        "sin": sin, "cos": cos, "tan": tan,
+        "log": log10, "ln": log, "exp": exp
+    ]
+
     private let bytes: [UInt8]
     private var position = 0
     private var operations = 0
@@ -352,6 +361,23 @@ private struct ArithmeticParser {
             return value
         }
         skipWhitespace()
+        if position < bytes.count, bytes[position].isASCIILetter { return namedValue(depth: depth) }
+        return number()
+    }
+
+    private mutating func namedValue(depth: Int) -> Double? {
+        let start = position
+        while position < bytes.count, bytes[position].isASCIILetter { position += 1 }
+        let name = String(decoding: bytes[start..<position], as: UTF8.self).lowercased()
+        if name == "pi" { return .pi }
+        if name == "e" { return M_E }
+        guard depth < maximumDepth, let function = Self.functions[name], take([40]) != nil,
+              countOperation(), let argument = sum(depth: depth + 1), take([41]) != nil else { return nil }
+        let result = function(argument)
+        return result.isFinite ? result : nil
+    }
+
+    private mutating func number() -> Double? {
         let start = position
         var digits = 0
         while position < bytes.count, bytes[position].isDigit { position += 1; digits += 1 }

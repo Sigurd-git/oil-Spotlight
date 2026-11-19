@@ -25,20 +25,25 @@ final class LauncherRebaseTests: XCTestCase {
         SearchPresentation(try XCTUnwrap(MultiSearcher.search(.parse("report"), options: .init(sort: .name, ascending: true), in: sources)))
     }
 
-    func testUnifiedMultiSourcePromotionDoesNotDeduplicateEqualIDsFromDifferentStores() throws {
-        let a = store("/generated/a", names: ["report-a.txt"])
+    func testUnifiedAppDeduplicationUsesSourceIdentityForEqualFileIDs() throws {
+        let a = store("/generated/a", names: ["report-a.app"])
         let b = store("/generated/b", names: ["report-b.txt"])
         let presentation = try result([.init(id: "a", displayName: "A", isOnline: true, store: a),
                                        .init(id: "b", displayName: "B", isOnline: false, store: b)])
         let snapshot = SearchCoordinator.compose(raw: "report", scope: .all, filePresentation: presentation, extras: [])
         XCTAssertEqual(snapshot.count, 2)
-        XCTAssertEqual(snapshot.removedOffsets, [0, 1])
+        XCTAssertTrue(snapshot.removedOffsets.isEmpty)
         let items = (0..<snapshot.count).compactMap { position -> ResultItem? in
             if case .file(let item)? = snapshot.row(at: position) { return item }; return nil
         }
         XCTAssertEqual(items.map(\.source.id), ["a", "b"])
         XCTAssertEqual(items.map(\.id), [1, 1])
         XCTAssertEqual(Set(items.map(\.path)).count, 2)
+        let app = LauncherApp(name: "Report A", path: "/generated/a/report-a.app")
+        let deduplicated = SearchCoordinator.compose(raw: "report", scope: .all, filePresentation: presentation, extras: [.app(app)])
+        XCTAssertEqual(deduplicated.removedOffsets, [0])
+        XCTAssertEqual(deduplicated.row(at: 0)?.identity, "file:" + app.path)
+        XCTAssertEqual(deduplicated.row(at: 1)?.identity, "file:/generated/b/report-b.txt")
     }
 
     func testUnifiedSelectionSurvivesSourceReorderAndStoreReplacement() throws {
@@ -109,14 +114,14 @@ final class LauncherRebaseTests: XCTestCase {
         XCTAssertEqual(detail.stringValue, "")
     }
 
-    func testPromotedFilesReadLiveMetadataAndRejectDeletedEntries() throws {
+    func testUnifiedFileRowsReadLiveMetadataAndRejectDeletedEntries() throws {
         _ = NSApplication.shared
         let index = store("/generated/archive", names: ["report.txt"])
         let source = SearchSource(id: "archive", displayName: "Archive", isOnline: true, store: index)
         let snapshot = SearchCoordinator.compose(raw: "report", scope: .all, filePresentation: try result([source]), extras: [])
         let view = ResultsView(frame: .zero)
         view.show(snapshot)
-        XCTAssertEqual(snapshot.leading.count, 1)
+        XCTAssertTrue(snapshot.leading.isEmpty)
         index.write {
             Array("report.txt".utf8).withUnsafeBufferPointer {
                 _ = index.update(1, name: $0, attrs: EntryAttrs(type: 0, size: 4096, mtime: 123456))

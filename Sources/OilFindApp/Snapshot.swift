@@ -292,16 +292,14 @@ enum Snapshot {
             buffer.nameLens = names.map { UInt32($0.utf8.count) }; buffer.nameBytes = Array(names.joined().utf8)
             let store = IndexStore(scan: ScanOutput(buffers: [buffer], count: 4, homeIndex: .max, elapsed: 0, finishedAt: 0),
                                    config: IndexConfig(rootPath: "/Users/demo/Documents"))
-            let source = SearchSource(id: "snapshot", displayName: "", isOnline: true, store: store)
-            let files = fileNames.enumerated().map { index, name in
-                LauncherRow.file(ResultItem(detail: nil, id: UInt32(index + 1), source: source, name: name, parentPath: "/Users/demo/Documents", path: "/Users/demo/Documents/" + name,
-                    size: UInt64((index + 1) * 2048), modified: now, flags: 0, kind: 3))
-            }
-            let words = raw.split(whereSeparator: { $0.isWhitespace })
-            let fileRows = files.filter { row in words.allSatisfy { row.title.localizedStandardContains(String($0)) || $0 == "显示" } }
+            let fileQuery = Query.parse(raw == "显示" ? "display" : raw, store: store)
+            let files = Searcher.search(fileQuery, options: .init(sort: .name, ascending: true), in: store)
             let appRows = apps.filter { LauncherMatch.rank(raw, in: [$0.name] + $0.aliases) != nil }.map(LauncherRow.app)
-            let rows = appRows + SystemSettingsCatalog.search(raw).map(LauncherRow.setting) + fileRows
-            return (SearchSnapshot(raw: raw, scope: .all, leading: rows, trailing: [.web(raw, WebSearchEngine.duckDuckGo.url(for: raw))]), [])
+            let sample = ClipboardEntry(text: raw == "显示" ? "显示器校色记录" : "Display calibration notes", copiedAt: now, sourceName: "Notes")
+            let clipboardRows: [LauncherRow] = !raw.isEmpty && sample.matches(raw) ? [.clipboard(sample)] : []
+            let rows = appRows + SystemSettingsCatalog.search(raw).map(LauncherRow.setting) + clipboardRows
+            return (SearchCoordinator.compose(raw: raw, scope: .all, fileResult: files, extras: rows,
+                                              trailing: [.web(raw, WebSearchEngine.duckDuckGo.url(for: raw))]), [sample])
         default: throw SnapshotError.failed("Invalid launcher fixture: \(state)")
         }
     }

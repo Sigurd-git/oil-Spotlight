@@ -61,15 +61,19 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
         searchField.placeholder = scopes.scope == .files && filters.additionalSelected ? additionalSearchProvider?.placeholder : nil
     }
     private func additionalChanged() {
+        let wasAdditionalOnly = scopes.scope == .files && filters.additionalSelected
         refreshAdditionalFilter()
-        results.cancelPendingRefresh(); results.cancelPress()
+        guard scopes.scope == .all || scopes.scope == .files && (wasAdditionalOnly || filters.options.kind == nil) else { return }
         if let provider = additionalSearchProvider {
             coordinator.pruneAdditional(using: provider)
             if let filtered = results.result?.removingUnavailableAdditionalItems(using: provider, options: filters.options) {
+                results.cancelPress()
                 replaceFilePresentation(filtered, applyingAvailabilityImmediately: true)
             }
         }
-        if view.window?.isVisible == true { startSearch(preserveSelection: true) }
+        guard view.window?.isVisible == true else { return }
+        if wasAdditionalOnly && !filters.additionalSelected { startSearch(preserveSelection: true) }
+        else { coordinator.refreshAdditional(additionalSearchProvider, sources: searchSources) }
     }
     var additionalSources: (() -> [SearchSource])?
     private var searchSources: [SearchSource] {
@@ -98,9 +102,7 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
     }
     private func replaceFilePresentation(_ file: SearchPresentation?, applyingAvailabilityImmediately: Bool = false) {
         if let old = results.snapshot {
-            let extras = old.leading.filter { row in if case .file = row { return false }; return true }
-            let found = SearchCoordinator.compose(raw: old.raw, scope: old.scope, filePresentation: file,
-                                                   extras: extras, trailing: old.trailing)
+            let found = old.replacingFilePresentation(file)
             results.refresh(found, preserveSelection: true, applyingAvailabilityImmediately: applyingAvailabilityImmediately)
         } else if let file {
             let row = results.selectedItem.flatMap { file.index(sourceID: $0.source.id, store: $0.source.store, id: $0.id, path: $0.path) } ?? 0
@@ -115,13 +117,14 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
     var onCaptureAction: ((CaptureAction) -> Void)?
     var onEditClipboardImage: ((ClipboardImage, CaptureAction) -> Void)?
     init(snapshot: Bool, preferences: UserDefaults = .standard, clipboard: ClipboardHistory? = nil,
-         currencyRates: CurrencyRateProvider? = nil, clock: @escaping () -> Date = Date.init) {
+         currencyRates: CurrencyRateProvider? = nil, clock: @escaping () -> Date = Date.init,
+         pasteController: ClipboardPasteController? = nil) {
         self.snapshot = snapshot
         self.preferences = preferences
         self.clock = clock
         applications = ApplicationCatalog(snapshot: snapshot)
         self.clipboard = clipboard ?? ClipboardHistory(snapshot: snapshot)
-        pasteController = ClipboardPasteController(snapshot: snapshot)
+        self.pasteController = pasteController ?? ClipboardPasteController(snapshot: snapshot)
         self.currencyRates = currencyRates ?? CurrencyRateProvider(snapshot: snapshot)
         super.init(nibName: nil, bundle: nil)
     }
@@ -154,10 +157,10 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
         results.onSnapshotApplied = { [weak self] found in self?.snapshotDidChange(found) }
         applications.$revision.dropFirst().receive(on: RunLoop.main).sink { [weak self] _ in self?.refreshSources() }.store(in: &subscriptions)
         clipboard.$entries.dropFirst().receive(on: RunLoop.main).sink { [weak self] _ in
-            if self?.scopes.scope == .clipboard { self?.refreshSources() }
+            self?.refreshClipboardResults()
         }.store(in: &subscriptions)
         clipboard.$enabled.dropFirst().receive(on: RunLoop.main).sink { [weak self] _ in
-            if self?.scopes.scope == .clipboard { self?.refreshSources() }
+            self?.refreshClipboardResults()
         }.store(in: &subscriptions)
         clipboard.$error.dropFirst().receive(on: RunLoop.main).sink { [weak self] _ in self?.refreshClipboardStatus() }.store(in: &subscriptions)
         clipboard.$needsAccess.dropFirst().receive(on: RunLoop.main).sink { [weak self] _ in self?.refreshClipboardStatus() }.store(in: &subscriptions)
@@ -331,7 +334,8 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
                            calculator: snapshot || defaults.bool(forKey: "calculatorEnabled"), web: snapshot || defaults.bool(forKey: "webSearchEnabled"),
                            engine: WebSearchEngine(rawValue: defaults.string(forKey: "webSearchEngine") ?? "duckDuckGo") ?? .duckDuckGo,
                            sources: searchSources, supplementaryProvider: supplementaryProvider, currency: currencyRow,
-                           additionalProvider: additionalSearchProvider, additionalOnly: additionalOnly)
+                           additionalProvider: additionalSearchProvider, additionalOnly: additionalOnly,
+                           allResultsOrder: AllResultsOrder.read(from: preferences))
     }
     func startSources() {
         guard !snapshot else { return }
@@ -353,6 +357,10 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
                                    calculator: snapshot || defaults.bool(forKey: "calculatorEnabled"), web: snapshot || defaults.bool(forKey: "webSearchEnabled"),
                                    engine: WebSearchEngine(rawValue: defaults.string(forKey: "webSearchEngine") ?? "duckDuckGo") ?? .duckDuckGo,
                                    currency: currencyRow)
+    }
+    private func refreshClipboardResults() {
+        if scopes.scope == .clipboard || scopes.scope == .all && view.window?.isVisible == true
+            && !searchField.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { refreshSources() }
     }
     private var currentCurrencyQuery: CurrencyQuery? {
         guard scopes.scope == .all, !searchField.editor.hasMarkedText(),
@@ -580,19 +588,7 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
             case .setting(let setting):
                 if SystemSettingsCatalog.open(setting) { hidePanel?() } else { NSSound.beep() }; return
             case .clipboard(let entry):
-                copyClipboardEntry(entry) { [weak self] in
-                    guard let self, let token = self.clipboard.latestCopyToken else { return }
-                    self.pasteController.pasteCurrentClipboard(isClipboardCurrent: { [weak self] in
-                        self?.clipboard.isClipboardCurrent(token) == true
-                    }, hidePanel: { [weak self] completion in
-                        guard let panel = self?.view.window as? SearchPanel else { self?.hidePanel?(); completion(); return }
-                        panel.hide(source: .interaction, completion: completion)
-                    }, completion: { [weak self] outcome in
-                        guard outcome != .sent, let self else { return }
-                        (self.view.window as? SearchPanel)?.show(source: .interaction)
-                        self.footer.showMessage(L10n.text(outcome == .clipboardChanged ? "clipboard.changed" : "clipboard.copiedOnly"))
-                    })
-                }; return
+                pasteClipboardEntry(entry); return
             case .answer(let answer): copyText(answer.value); return
             case .currency(let query, let lookup):
                 guard currentCurrencyQuery == query else { return }
@@ -766,6 +762,28 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
         clipboardActionGeneration += 1
         pendingClipboardID = nil
         clipboard.cancelCopy()
+    }
+    private func pasteClipboardEntry(_ entry: ClipboardEntry) {
+        copyClipboardEntry(entry) { [weak self] in
+            guard let self, let token = self.clipboard.latestCopyToken else { return }
+            self.pasteController.pasteCurrentClipboard(isClipboardCurrent: { [weak self] in
+                self?.clipboard.isClipboardCurrent(token) == true
+            }, hidePanel: { [weak self] completion in
+                guard let panel = self?.view.window as? SearchPanel else { self?.hidePanel?(); completion(); return }
+                panel.hide(source: .interaction, completion: completion)
+            }, completion: { [weak self] outcome in
+                guard let self else { return }
+                let message: String
+                switch outcome {
+                case .sent, .cancelled: return
+                case .copiedOnly: message = "clipboard.copiedOnly"
+                case .permissionRequired: message = "clipboard.pastePermission"
+                case .clipboardChanged: message = "clipboard.changed"
+                }
+                (self.view.window as? SearchPanel)?.show(source: .interaction)
+                self.footer.showMessage(L10n.text(message))
+            })
+        }
     }
     private func copyClipboardEntry(_ entry: ClipboardEntry, completion: @escaping () -> Void) {
         invalidateClipboardCopy()

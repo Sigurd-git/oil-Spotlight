@@ -6,6 +6,31 @@ enum SearchScope: String, CaseIterable {
     var title: String { L10n.text("scope." + rawValue) }
 }
 
+struct AllResultsOrder: Equatable {
+    private static let key = "allResultsOrder"
+    private static let defaultScopes: [SearchScope] = [.apps, .files, .settings, .clipboard]
+    static let defaultOrder = AllResultsOrder(defaultScopes)
+    let scopes: [SearchScope]
+
+    init(_ scopes: [SearchScope]) {
+        var remaining = Self.defaultScopes
+        let validScopes = scopes.filter { scope in
+            guard let index = remaining.firstIndex(of: scope) else { return false }
+            remaining.remove(at: index)
+            return true
+        }
+        self.scopes = validScopes + remaining
+    }
+
+    static func read(from defaults: UserDefaults) -> AllResultsOrder {
+        AllResultsOrder((defaults.stringArray(forKey: key) ?? []).compactMap(SearchScope.init(rawValue:)))
+    }
+
+    func save(to defaults: UserDefaults) {
+        defaults.set(scopes.map(\.rawValue), forKey: Self.key)
+    }
+}
+
 enum LauncherRow {
     case file(ResultItem), app(LauncherApp), setting(SystemSetting), clipboard(ClipboardEntry)
     case answer(ToolAnswer), currency(CurrencyQuery, CurrencyLookup), url(URL), web(String, URL), enableClipboard
@@ -54,7 +79,7 @@ enum LauncherRow {
         case .setting(let setting): return setting.subtitle
         case .clipboard(let entry):
             return [entry.locationSummary, entry.sourceName, Presentation.dateText(entry.copiedAt, now: Date(), calendar: .current, chinese: L10n.chinese)].compactMap { $0 }.joined(separator: " · ")
-        case .answer(let answer): return answer.expression + " · " + answer.detail
+        case .answer(let answer): return answer.detail
         case .currency(let query, let lookup):
             let detail: String
             switch lookup {
@@ -89,7 +114,7 @@ enum LauncherRow {
     }
 }
 
-// File IDs stay in the engine's compact array. Only a bounded prefix is promoted.
+// The ordered source groups wrap the engine's compact file results.
 final class SearchSnapshot {
     let raw: String, scope: SearchScope, filePresentation: SearchPresentation?
     var fileResult: SearchResult? { filePresentation?.single }
@@ -105,6 +130,15 @@ final class SearchSnapshot {
          trailing: [LauncherRow] = [], removedOffsets: [Int] = [], filesPending: Bool = false) {
         self.raw = raw; self.scope = scope; self.filePresentation = filePresentation; self.leading = leading; self.trailing = trailing
         self.removedOffsets = removedOffsets.sorted(); self.filesPending = filesPending
+    }
+    func replacingFilePresentation(_ file: SearchPresentation?) -> SearchSnapshot {
+        let rows = [leading, trailing].lazy.flatMap { $0 }
+        let appPaths = Set(rows.compactMap { row -> String? in
+            if case .app(let app) = row { return app.path }
+            return nil
+        })
+        return SearchSnapshot(raw: raw, scope: scope, filePresentation: file, leading: leading, trailing: trailing,
+                              removedOffsets: SearchCoordinator.duplicateOffsets(file, appPaths: appPaths), filesPending: filesPending)
     }
     static func fileItem(_ result: SearchResult, offset: Int) -> ResultItem? {
         fileItem(SearchPresentation(result), offset: offset)
@@ -197,6 +231,7 @@ final class SearchCoordinator {
     private let lock = NSLock(), cache = SearchCache()
     private var generation = 0, fileRequest = 0, sourceRequest = 0
     private var raw = "", scope = SearchScope.all, options = SearchOptions()
+    private var allResultsOrder = AllResultsOrder.defaultOrder
     private var sources: [SearchSource] = [], supplementaryProvider: SupplementarySearchProvider?
     private var additionalProvider: AdditionalSearchProvider?, additionalOnly = false
     private(set) var additionalSearchFailed = false
@@ -219,13 +254,19 @@ final class SearchCoordinator {
         if let filtered = fileResult?.removingUnavailableAdditionalItems(using: provider, options: options) { fileResult = filtered }
         if let filtered = previousFile?.removingUnavailableAdditionalItems(using: provider, options: options) { previousFile = filtered }
     }
+    func refreshAdditional(_ provider: AdditionalSearchProvider?, sources: [SearchSource]) {
+        additionalProvider = provider
+        refreshFiles(sources: sources)
+    }
     func search(raw: String, scope: SearchScope, options: SearchOptions, store: IndexStore?, editingRange: NSRange?, composing: Bool,
                 apps: [LauncherApp], clipboard: [ClipboardEntry], clipboardEnabled: Bool,
                 calculator: Bool, web: Bool, engine: WebSearchEngine, sources: [SearchSource]? = nil, supplementaryProvider: SupplementarySearchProvider? = nil,
-                currency: LauncherRow? = nil, additionalProvider: AdditionalSearchProvider? = nil, additionalOnly: Bool = false) {
+                currency: LauncherRow? = nil, additionalProvider: AdditionalSearchProvider? = nil, additionalOnly: Bool = false,
+                allResultsOrder: AllResultsOrder = .defaultOrder) {
         lock.lock(); generation += 1; lock.unlock()
         self.raw = raw; self.scope = scope; self.options = options; self.sources = sources ?? Self.primarySource(store); self.supplementaryProvider = supplementaryProvider; self.editingRange = editingRange; self.composing = composing
         self.additionalProvider = additionalProvider; self.additionalOnly = additionalOnly; additionalSearchFailed = false
+        self.allResultsOrder = allResultsOrder
         previousFile = fileResult ?? previousFile; fileResult = nil; extras = []; tail = []; delivered = false
         filesPending = (scope == .files || scope == .all) && !self.sources.isEmpty
         refreshFiles(sources: self.sources)
@@ -254,8 +295,15 @@ final class SearchCoordinator {
         let additional = !composing && (additionalOnly || options.kind == nil) && additionalProvider?.isEnabled == true
             ? additionalProvider?.prepareSearch(query, isCancelled: cancelled) : nil
         guard !sources.isEmpty || additional != nil else {
-            fileResult = nil; previousFile = nil; filesPending = false; publish(); return
+            fileResult = nil; previousFile = nil; filesPending = false
+            if scope == .files || delivered { publish() }
+            return
         }
+        let hasSupplementaryWork = supplementary != nil || additional != nil
+        // A source refresh for the active query can keep the merged rows while it reads.
+        // A new query or a changed file index still gets its fast file-only result.
+        let keepPublishedRows = scope == .all && hasSupplementaryWork
+            && fileResult?.sources.count == sources.count && fileResult?.isCurrent(sources) == true
         let group = DispatchGroup(), box = SupplementarySearchBox()
         let additionalBox = AdditionalSearchBox()
         if let supplementary {
@@ -271,7 +319,7 @@ final class SearchCoordinator {
                 group.leave()
             }
         }
-        filesPending = true
+        filesPending = !keepPublishedRows
         fileQueue.async { [weak self] in
             guard let self, !cancelled() else { return }
             let found: SearchPresentation
@@ -294,14 +342,16 @@ final class SearchCoordinator {
                                                        caches: self.sourceCaches, isCancelled: cancelled), !cancelled() else { return }
                 found = SearchPresentation(result)
             }
-            DispatchQueue.main.async { [weak self] in
-                guard let self, !cancelled(), found.isCurrent(self.sources) else { return }
-                let visible = additional != nil && previous?.query.raw == query.raw
-                    ? found.including(previous?.additionalResults ?? [], options: options) : found
-                self.fileResult = visible; self.previousFile = visible
-                self.filesPending = supplementary != nil || additional != nil; self.publish()
+            if !keepPublishedRows {
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, !cancelled(), found.isCurrent(self.sources) else { return }
+                    let visible = additional != nil && previous?.query.raw == query.raw
+                        ? found.including(previous?.additionalResults ?? [], options: options) : found
+                    self.fileResult = visible; self.previousFile = visible
+                    self.filesPending = hasSupplementaryWork; self.publish()
+                }
             }
-            if supplementary != nil || additional != nil {
+            if hasSupplementaryWork {
                 group.notify(queue: self.fileQueue) { [weak self] in
                     guard let self, !cancelled() else { return }
                     let files = box.hits.isEmpty ? found : found.supplement(box.hits, options: options)
@@ -324,11 +374,12 @@ final class SearchCoordinator {
             guard let self, self.isCurrent(token, request: request, file: false) else { return }
             let query = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             var extra: [LauncherRow] = [], tail: [LauncherRow] = []
+            if clipboardEnabled && (scope == .clipboard || scope == .all && !query.isEmpty && !composing) {
+                let words = query.split(whereSeparator: \.isWhitespace).map(String.init)
+                extra = clipboard.filter { $0.matches(words: words) }.map(LauncherRow.clipboard)
+            }
             if scope == .clipboard {
-                if clipboardEnabled {
-                    let words = query.split(whereSeparator: { $0.isWhitespace }).map(String.init)
-                    extra = clipboard.filter { $0.matches(words: words) }.map(LauncherRow.clipboard)
-                } else { extra = [.enableClipboard] }
+                if !clipboardEnabled { extra = [.enableClipboard] }
             } else if scope != .files {
                 if scope == .all || scope == .apps {
                     let found = apps.compactMap { app -> (LauncherApp, Int)? in
@@ -361,80 +412,77 @@ final class SearchCoordinator {
         }
     }
     private func publish() {
-        let snapshot = Self.compose(raw: raw, scope: scope, filePresentation: fileResult, extras: extras, trailing: tail, filesPending: filesPending)
+        let snapshot = Self.compose(raw: raw, scope: scope, filePresentation: fileResult, extras: extras, trailing: tail,
+                                    filesPending: filesPending, allResultsOrder: allResultsOrder)
         onUpdate?(snapshot, delivered); delivered = true
     }
-    static func compose(raw: String, scope: SearchScope, fileResult: SearchResult?, extras: [LauncherRow], trailing: [LauncherRow] = [], filesPending: Bool = false) -> SearchSnapshot {
-        compose(raw: raw, scope: scope, filePresentation: fileResult.map(SearchPresentation.init), extras: extras, trailing: trailing, filesPending: filesPending)
+    static func compose(raw: String, scope: SearchScope, fileResult: SearchResult?, extras: [LauncherRow], trailing: [LauncherRow] = [],
+                        filesPending: Bool = false, allResultsOrder: AllResultsOrder = .defaultOrder) -> SearchSnapshot {
+        compose(raw: raw, scope: scope, filePresentation: fileResult.map(SearchPresentation.init), extras: extras, trailing: trailing,
+                filesPending: filesPending, allResultsOrder: allResultsOrder)
     }
-    static func compose(raw: String, scope: SearchScope, filePresentation: SearchPresentation?, extras: [LauncherRow], trailing: [LauncherRow] = [], filesPending: Bool = false) -> SearchSnapshot {
+    static func compose(raw: String, scope: SearchScope, filePresentation: SearchPresentation?, extras: [LauncherRow], trailing: [LauncherRow] = [],
+                        filesPending: Bool = false, allResultsOrder: AllResultsOrder = .defaultOrder) -> SearchSnapshot {
         guard scope == .all else { return SearchSnapshot(raw: raw, scope: scope, filePresentation: scope == .files ? filePresentation : nil, leading: extras, filesPending: filesPending) }
-        if raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return SearchSnapshot(raw: raw, scope: scope, filePresentation: filePresentation, leading: extras,
-                                  removedOffsets: duplicateOffsets(filePresentation, leading: extras), filesPending: filesPending)
-        }
-        var candidates: [(LauncherRow, Int, Int, Int?)] = []
+        var groups: [SearchScope: [LauncherRow]] = [:]
+        var leading: [LauncherRow] = [], afterFiles: [LauncherRow] = []
+        var appPaths = Set<String>()
         for row in extras {
-            let rank: Int, source: Int
             switch row {
-            case .answer, .currency, .url, .web: rank = -1; source = -1
-            case .app(let app): rank = LauncherMatch.rank(raw, in: [app.name] + app.aliases) ?? 3; source = 0
-            case .setting(let setting): rank = LauncherMatch.rank(raw, in: [setting.name] + setting.aliases) ?? 3; source = 1
-            case .action(let action): rank = LauncherMatch.rank(raw, in: action.aliases) ?? 3; source = 1
-            default: continue
-            }
-            candidates.append((row, rank, source, nil))
-        }
-        if let filePresentation {
-            for offset in 0..<min(20, filePresentation.count) {
-                guard let item = SearchSnapshot.fileItem(filePresentation, offset: offset), let rank = LauncherMatch.rank(raw, in: [item.name]) else { continue }
-                candidates.append((.file(item), rank, 2, offset))
-            }
-        }
-        candidates = candidates.enumerated().sorted {
-            if $0.element.1 != $1.element.1 { return $0.element.1 < $1.element.1 }
-            if $0.element.2 != $1.element.2 { return $0.element.2 < $1.element.2 }
-            return $0.offset < $1.offset
-        }.map(\.element)
-        var identities: Set<String> = [], leading: [LauncherRow] = [], removed: [Int] = []
-        for candidate in candidates where leading.count < 5 {
-            guard identities.insert(candidate.0.identity).inserted else { continue }
-            leading.append(candidate.0)
-        }
-        removed = duplicateOffsets(filePresentation, leading: leading)
-        return SearchSnapshot(raw: raw, scope: scope, filePresentation: filePresentation, leading: leading, trailing: trailing, removedOffsets: removed, filesPending: filesPending)
-    }
-    private static func duplicateOffsets(_ filePresentation: SearchPresentation?, leading: [LauncherRow]) -> [Int] {
-        guard let filePresentation else { return [] }
-        if let single = filePresentation.single, !filePresentation.hasSupplements, !filePresentation.hasAdditional {
-            let ids: [UInt32] = single.store.read {
-                leading.compactMap { row in
-                    switch row {
-                    case .file(let item) where item.source.store === single.store: return item.id
-                    case .app(let app): return single.store.hashReady ? single.store.resolve(path: app.path) : nil
-                    default: return nil
-                    }
-                }
-            }
-            return compactPositions(of: Array(Set(ids)), in: single.items)
-        }
-        var offsets: Set<Int> = []
-        for row in leading {
-            switch row {
-            case .file(let item):
-                if let offset = filePresentation.index(sourceID: item.source.id, store: item.source.store, id: item.id, path: item.path) { offsets.insert(offset) }
+            case .answer, .currency, .url, .web: leading.append(row)
             case .app(let app):
-                for source in filePresentation.sources {
-                    let id = source.store.read { source.store.hashReady ? source.store.resolve(path: app.path) : nil }
-                    if let id, let offset = filePresentation.index(sourceID: source.id, store: source.store, id: id, path: app.path) { offsets.insert(offset) }
-                }
+                if appPaths.insert(app.path).inserted { groups[.apps, default: []].append(row) }
+            case .setting: groups[.settings, default: []].append(row)
+            case .action(let action):
+                if LauncherMatch.rank(raw, in: action.aliases) == 0 { leading.append(row) }
+                else { groups[.settings, default: []].append(row) }
+            case .clipboard: groups[.clipboard, default: []].append(row)
             default: break
             }
         }
-        return offsets.sorted()
+        if raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            leading = groups[.apps] ?? []
+        } else {
+            var passedFiles = false
+            for source in allResultsOrder.scopes {
+                if source == .files { passedFiles = true; continue }
+                guard let rows = groups[source] else { continue }
+                if passedFiles { afterFiles += rows }
+                else { leading += rows }
+            }
+        }
+        return SearchSnapshot(raw: raw, scope: scope, filePresentation: filePresentation, leading: leading, trailing: afterFiles + trailing,
+                              removedOffsets: duplicateOffsets(filePresentation, appPaths: appPaths), filesPending: filesPending)
     }
-    private static func compactPositions(of ids: [UInt32], in items: [UInt32]) -> [Int] {
-        guard !ids.isEmpty else { return [] }
+    fileprivate static func duplicateOffsets(_ filePresentation: SearchPresentation?, appPaths: Set<String>) -> [Int] {
+        guard let filePresentation, !appPaths.isEmpty, filePresentation.count > 0 else { return [] }
+        var idsBySource: [String: Set<UInt32>] = [:]
+        for source in filePresentation.sources {
+            let ids = source.store.read {
+                source.store.hashReady ? Set(appPaths.compactMap { source.store.resolve(path: $0) }) : []
+            }
+            if !ids.isEmpty { idsBySource[source.id] = ids }
+        }
+        guard !idsBySource.isEmpty else { return [] }
+        if let single = filePresentation.single, !filePresentation.hasSupplements, !filePresentation.hasAdditional {
+            return compactPositions(of: idsBySource["startup"] ?? [], in: single.items)
+        }
+        if let multiple = filePresentation.multiple, !filePresentation.hasSupplements, !filePresentation.hasAdditional {
+            let idsByIndex = multiple.sources.map { idsBySource[$0.id] ?? [] }
+            return multiple.items.indices.filter { index in
+                let hit = multiple.items[index]
+                return idsByIndex[hit.sourceIndex].contains(hit.entryID)
+            }
+        }
+        return (0..<filePresentation.count).filter { index in
+            guard let hit = filePresentation.row(index) else { return false }
+            return idsBySource[hit.source.id]?.contains(hit.id) == true
+        }
+    }
+    private static func compactPositions(of targetIDs: Set<UInt32>, in items: [UInt32]) -> [Int] {
+        guard !targetIDs.isEmpty else { return [] }
+        if targetIDs.count > 8 { return items.indices.filter { targetIDs.contains(items[$0]) } }
+        let ids = Array(targetIDs)
         if items.count < 256 { return ids.compactMap { items.firstIndex(of: $0) }.sorted() }
         // Compare all promoted IDs in one vectorized pass over the compact array.
         // Only matching blocks inspect individual lanes; no per-file allocations.

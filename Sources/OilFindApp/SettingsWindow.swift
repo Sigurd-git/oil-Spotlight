@@ -32,6 +32,7 @@ final class SettingsModel: ObservableObject {
     @Published var calculatorEnabled: Bool
     @Published var currencyEnabled: Bool
     @Published var searchQueryRetention: SearchQueryRetention
+    @Published private(set) var allResultsOrder: AllResultsOrder
     @Published var webSearchEnabled: Bool
     @Published var webSearchEngine: WebSearchEngine
     @Published var excludedPaths: [String]
@@ -90,6 +91,7 @@ final class SettingsModel: ObservableObject {
         calculatorEnabled = snapshot ? true : defaults.bool(forKey: "calculatorEnabled")
         currencyEnabled = snapshot ? true : (preferences.object(forKey: "currencyEnabled") as? Bool ?? true)
         searchQueryRetention = snapshot ? .minute : SearchQueryRetention.read(from: preferences)
+        allResultsOrder = snapshot ? .defaultOrder : AllResultsOrder.read(from: preferences)
         webSearchEnabled = snapshot ? true : defaults.bool(forKey: "webSearchEnabled")
         webSearchEngine = snapshot ? .duckDuckGo : WebSearchEngine(rawValue: defaults.string(forKey: "webSearchEngine") ?? "") ?? .duckDuckGo
         excludedPaths = snapshot ? [] : ExcludedFolders.adding(defaults.stringArray(forKey: "userExcludedPaths") ?? [], to: [])
@@ -202,6 +204,13 @@ final class SettingsModel: ObservableObject {
     func setSearchQueryRetention(_ retention: SearchQueryRetention) {
         searchQueryRetention = retention
         if !snapshot { preferences.set(retention.rawValue, forKey: "searchQueryRetention") }
+    }
+    func moveAllResultsSource(_ scope: SearchScope, by offset: Int) {
+        var scopes = allResultsOrder.scopes
+        guard let index = scopes.firstIndex(of: scope), scopes.indices.contains(index + offset) else { return }
+        scopes.swapAt(index, index + offset)
+        allResultsOrder = AllResultsOrder(scopes)
+        if !snapshot { allResultsOrder.save(to: preferences) }
     }
     func setWebSearch(_ enabled: Bool) {
         webSearchEnabled = enabled
@@ -427,6 +436,18 @@ private struct SettingsForm: View {
         }
     }
     @ViewBuilder private var searchSections: some View {
+        Section(L10n.text("settings.allResultsOrder")) {
+            ForEach(model.allResultsOrder.scopes, id: \.self) { scope in
+                HStack {
+                    Text(scope.title)
+                    Spacer()
+                    moveSourceButton(scope, offset: -1, symbol: "chevron.up", key: "settings.moveSourceUp")
+                        .disabled(scope == model.allResultsOrder.scopes.first)
+                    moveSourceButton(scope, offset: 1, symbol: "chevron.down", key: "settings.moveSourceDown")
+                        .disabled(scope == model.allResultsOrder.scopes.last)
+                }
+            }
+        }
         Section(L10n.text("settings.search")) {
             VStack(alignment: .leading, spacing: 5) {
                 Picker(L10n.text("settings.queryExpiry"), selection: Binding(get: { model.searchQueryRetention }, set: model.setSearchQueryRetention)) {
@@ -466,6 +487,16 @@ private struct SettingsForm: View {
         Section(L10n.text("topicsTitle")) {
             AITopicSettings(manager: model.topics)
         }
+    }
+    private func moveSourceButton(_ scope: SearchScope, offset: Int, symbol: String, key: String) -> some View {
+        let label = L10n.text(key, scope.title)
+        return Button { model.moveAllResultsSource(scope, by: offset) } label: {
+            Image(systemName: symbol).frame(width: 16)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .help(label)
+        .accessibilityLabel(label)
     }
     @ViewBuilder private var indexSections: some View {
         Section(L10n.text("settings.index")) {

@@ -850,6 +850,70 @@ final class ClipboardTests: XCTestCase {
         XCTAssertEqual(adapter.log.filter { $0 == "event" }.count, 1)
     }
 
+    func testPasteMenuFallbackOnlyMatchesUnmodifiedPasteCommands() {
+        for title in ["Paste", "Paste Item", "Paste 2 Items", "粘贴", "粘贴 2 个项目", "貼上"] {
+            XCTAssertTrue(ClipboardSystemPasteAdapter.isPasteMenuCommand(title: title, modifiers: 0), title)
+            XCTAssertFalse(ClipboardSystemPasteAdapter.isPasteMenuCommand(title: title, modifiers: 1), title)
+            XCTAssertFalse(ClipboardSystemPasteAdapter.isPasteMenuCommand(title: title, modifiers: 8), title)
+        }
+        for title in ["Paste and Match Style", "Paste Special", "Save", "粘贴并匹配样式", "Paste %% Items"] {
+            XCTAssertFalse(ClipboardSystemPasteAdapter.isPasteMenuCommand(title: title, modifiers: 0), title)
+        }
+    }
+
+    func testDoubleClickPastesTheClickedClipboardEntryAfterHiding() throws {
+        _ = NSApplication.shared
+        let board = FakePasteboard(), adapter = FakePasteAdapter()
+        let history = ClipboardHistory(defaults: defaults(), storage: FakeStorage(), pasteboard: board, clock: { self.now })
+        let paste = ClipboardPasteController(adapter: adapter)
+        let controller = SearchViewController(snapshot: false, clipboard: history, pasteController: paste)
+        let window = ClipboardResultWindow(contentRect: NSRect(origin: .zero, size: Theme.panelSize),
+                                           styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentViewController = controller; window.orderFront(nil)
+        defer { window.close(); history.stop() }
+        controller.hidePanel = { adapter.log.append("hide") }
+        let clicked = entry("Synthetic text from the second row")
+        controller.scopes.scope = .clipboard
+        controller.results.show(SearchSnapshot(raw: "", scope: .clipboard, leading: [.clipboard(entry("First row")), .clipboard(clicked)]))
+        controller.setState(nil)
+        controller.view.layoutSubtreeIfNeeded()
+        let table = try XCTUnwrap(controller.results.subviews.compactMap { ($0 as? NSScrollView)?.documentView as? NSTableView }.first)
+        let row = table.rect(ofRow: 1)
+        let location = table.convert(NSPoint(x: row.midX, y: row.midY), to: nil)
+        func mouse(_ type: NSEvent.EventType, count: Int) throws -> NSEvent {
+            try XCTUnwrap(NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                            windowNumber: window.windowNumber, context: nil, eventNumber: count, clickCount: count, pressure: 1))
+        }
+        paste.captureTarget()
+        for click in 1...2 {
+            NSApp.postEvent(try mouse(.leftMouseUp, count: click), atStart: true)
+            table.mouseDown(with: try mouse(.leftMouseDown, count: click))
+            if click == 1 { XCTAssertEqual(board.writes, 0) }
+        }
+        XCTAssertEqual(board.text, clicked.text)
+        XCTAssertEqual(board.writes, 1)
+        XCTAssertEqual(adapter.log, ["capture", "hide", "permission", "process", "activate"])
+        adapter.activation?(true)
+        XCTAssertEqual(adapter.log.filter { $0 == "event" }.count, 1)
+    }
+
+    func testReopeningPanelCancelsAnInFlightPaste() {
+        let adapter = FakePasteAdapter(), deadline = FakePasteDeadline()
+        let paste = ClipboardPasteController(adapter: adapter, scheduleFailureDeadline: deadline.schedule)
+        paste.captureTarget()
+        var outcomes: [PasteOutcome] = []
+        paste.pasteCurrentClipboard(hidePanel: { $0() }, completion: { outcomes.append($0) })
+        let oldActivation = adapter.activation
+        paste.captureTarget()
+        oldActivation?(true)
+        XCTAssertEqual(outcomes, [.cancelled])
+        XCTAssertFalse(adapter.log.contains("event"))
+        paste.pasteCurrentClipboard(hidePanel: { $0() }, completion: { outcomes.append($0) })
+        adapter.activation?(true)
+        XCTAssertEqual(outcomes, [.cancelled, .sent])
+    }
+
     func testSuccessfulCopyTokenChecksPasteboardRevisionWithoutReadingContent() throws {
         let board = FakePasteboard()
         let history = ClipboardHistory(defaults: defaults(), storage: FakeStorage(), pasteboard: board, clock: { self.now })
@@ -971,7 +1035,7 @@ final class ClipboardTests: XCTestCase {
             var outcomes: [PasteOutcome] = []
             paste.pasteCurrentClipboard(hidePanel: { $0() }, completion: { outcomes.append($0) })
             adapter.activation?(failure != "activation")
-            XCTAssertEqual(outcomes, [.copiedOnly], failure)
+            XCTAssertEqual(outcomes, [failure == "permission" ? .permissionRequired : .copiedOnly], failure)
             if failure != "event" { XCTAssertFalse(adapter.log.contains("event"), failure) }
         }
     }
@@ -985,7 +1049,7 @@ final class ClipboardTests: XCTestCase {
             controller.pasteCurrentClipboard(hidePanel: { $0() }, completion: { outcome = $0 })
             if failure == "permission" { adapter.permission = false } else { adapter.running = false }
             adapter.activation?(true)
-            XCTAssertEqual(outcome, .copiedOnly)
+            XCTAssertEqual(outcome, failure == "permission" ? .permissionRequired : .copiedOnly)
             XCTAssertFalse(adapter.log.contains("event"))
         }
     }
@@ -1056,6 +1120,10 @@ final class ClipboardTests: XCTestCase {
         XCTAssertEqual(adapter.log, finishedLog)
         XCTAssertEqual(deadline.cancellations, 1)
     }
+}
+
+private final class ClipboardResultWindow: NSWindow {
+    override var isKeyWindow: Bool { true }
 }
 
 // IO completes on the real serial storage queue; tests control delivery on main.
@@ -1152,5 +1220,9 @@ private final class FakePasteAdapter: ClipboardPasteAdapting {
     func isRunning(_ target: ClipboardPasteTarget) -> Bool { log.append("process"); return running }
     func activate(_ target: ClipboardPasteTarget, completion: @escaping (Bool) -> Void) { log.append("activate"); activation = completion }
     func hasFocus(_ target: ClipboardPasteTarget) -> Bool { log.append("focus"); return focused }
-    func sendCommandV(to target: ClipboardPasteTarget) -> Bool { log.append("event"); return eventResult }
+    func paste(to target: ClipboardPasteTarget, isClipboardCurrent: () -> Bool) -> PasteOutcome {
+        guard isClipboardCurrent() else { return .clipboardChanged }
+        log.append("event")
+        return eventResult ? .sent : .copiedOnly
+    }
 }

@@ -5,7 +5,7 @@ import OilFindCore
 
 final class LauncherSettingsTests: XCTestCase {
     func testSnapshotSettingsDoNotPersistLauncherOrIndexChoices() throws {
-        let keys = ["calculatorEnabled", "currencyEnabled", "searchQueryRetention", "webSearchEnabled", "webSearchEngine", "pinyinEnabled",
+        let keys = ["calculatorEnabled", "currencyEnabled", "searchQueryRetention", "allResultsOrder", "webSearchEnabled", "webSearchEngine", "pinyinEnabled",
                     "indexDependencyDirs", "indexPackageContents", "indexUserLibrary", "indexSystemDirs"]
         let defaults = UserDefaults.standard
         let before = keys.map { defaults.object(forKey: $0) as? NSObject }
@@ -20,6 +20,7 @@ final class LauncherSettingsTests: XCTestCase {
         model.setCalculator(false)
         model.setCurrency(false)
         model.setSearchQueryRetention(.immediately)
+        model.moveAllResultsSource(.clipboard, by: -1)
         model.setWebSearch(false)
         let engine = try XCTUnwrap(WebSearchEngine.allCases.first { $0 != .duckDuckGo })
         model.setWebSearchEngine(engine)
@@ -37,6 +38,20 @@ final class LauncherSettingsTests: XCTestCase {
         for (index, key) in keys.enumerated() {
             XCTAssertEqual(defaults.object(forKey: key) as? NSObject, before[index], key)
         }
+    }
+
+    func testAllResultsOrderRepairsStoredValuesAndPersistsMoves() throws {
+        let suite = "OilFindResultOrder-\(UUID().uuidString)"
+        let preferences = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { preferences.removePersistentDomain(forName: suite) }
+        XCTAssertEqual(AllResultsOrder.read(from: preferences).scopes, [.apps, .files, .settings, .clipboard])
+        preferences.set(["clipboard", "all", "unknown", "files", "clipboard"], forKey: "allResultsOrder")
+        let model = SettingsModel(preferences: preferences, clipboard: ClipboardHistory(snapshot: true),
+                                  capture: CaptureSettingsModel(snapshot: true), topics: AITopicManager(defaults: preferences))
+        XCTAssertEqual(model.allResultsOrder.scopes, [.clipboard, .files, .apps, .settings])
+        model.moveAllResultsSource(.clipboard, by: -1)
+        model.moveAllResultsSource(.settings, by: -1)
+        XCTAssertEqual(AllResultsOrder.read(from: preferences).scopes, [.clipboard, .files, .settings, .apps])
     }
 
     func testClipboardSettingsUseSuppliedHistoryAndSnapshotsOwnSeparateHistory() {

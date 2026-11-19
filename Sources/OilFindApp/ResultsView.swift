@@ -28,6 +28,8 @@ final class ResultCell: NSTableCellView {
     private let sizeLabel = Theme.label(11.5, .regular, .tertiaryLabelColor)
     private var configuration = 0
     private var displayingThumbnail = false
+    private var renderedRow: LauncherRow?
+    private var renderedHighlights: [NSRange]?
     override init(frame: NSRect) {
         super.init(frame: frame)
         pathLabel.lineBreakMode = .byTruncatingMiddle
@@ -65,6 +67,9 @@ final class ResultCell: NSTableCellView {
         }
     }
     func configure(_ item: ResultItem, query: Query, icons: IconProvider) {
+        renderedRow = .file(item)
+        let highlights = item.source.isOnline ? Presentation.highlightRanges(name: item.name, query: query) : []
+        renderedHighlights = highlights
         dateLabel.isHidden = false; sizeLabel.isHidden = false
         configuration += 1
         sizeLabel.lineBreakMode = .byTruncatingTail
@@ -72,7 +77,7 @@ final class ResultCell: NSTableCellView {
         displayingThumbnail = false
         updateThumbnailStyle()
         let name = NSMutableAttributedString(string: item.name, attributes: [.font: nameLabel.font!, .foregroundColor: item.source.isOnline ? NSColor.labelColor : NSColor.tertiaryLabelColor])
-        for range in item.source.isOnline ? Presentation.highlightRanges(name: item.name, query: query) : [] {
+        for range in highlights {
             name.addAttributes([.foregroundColor: NSColor.controlAccentColor, .font: NSFont.systemFont(ofSize: 13.5, weight: .semibold)], range: range)
         }
         nameLabel.attributedStringValue = name
@@ -103,6 +108,8 @@ final class ResultCell: NSTableCellView {
         needsLayout = true
     }
     func configure(_ row: LauncherRow, icons: IconProvider) {
+        renderedRow = row
+        renderedHighlights = nil
         configuration += 1
         let token = configuration
         displayingThumbnail = false; updateThumbnailStyle()
@@ -132,6 +139,31 @@ final class ResultCell: NSTableCellView {
                 guard let self, self.configuration == token else { return }
                 self.icon.image = thumbnail; self.displayingThumbnail = true; self.updateThumbnailStyle()
             }
+        }
+    }
+
+    func displays(_ row: LauncherRow, query: Query?) -> Bool {
+        switch (renderedRow, row) {
+        case (.file(let old)?, .file(let new)):
+            guard let query, let renderedHighlights, old.detail == nil, new.detail == nil,
+                  old.source.isOnline == new.source.isOnline, old.path == new.path, old.name == new.name,
+                  old.size == new.size, old.modified == new.modified, old.flags == new.flags, old.kind == new.kind else { return false }
+            return !new.source.isOnline || renderedHighlights == Presentation.highlightRanges(name: new.name, query: query)
+        case (.app(let old)?, .app(let new)): return old.name == new.name && old.path == new.path
+        case (.additional(let old)?, .additional(let new)):
+            return old.id == new.id && old.title == new.title && old.detail == new.detail && old.location == new.location
+                && old.modified == new.modified && old.icon === new.icon
+        case (.setting(let old)?, .setting(let new)): return old == new
+        case (.clipboard(let old)?, .clipboard(let new)): return old == new
+        case (.currency(let oldQuery, let oldLookup)?, .currency(let newQuery, let newLookup)):
+            return oldQuery == newQuery && oldLookup == newLookup
+        case (.answer(let old)?, .answer(let new)):
+            return old.expression == new.expression && old.value == new.value && old.detail == new.detail
+        case (.url(let old)?, .url(let new)): return old == new
+        case (.web(let old, _)?, .web(let new, _)): return old == new
+        case (.action(let old)?, .action(let new)): return old == new
+        case (.enableClipboard?, .enableClipboard): return true
+        default: return false
         }
     }
 }
@@ -318,11 +350,47 @@ final class ResultsView: FlippedView, NSTableViewDataSource, NSTableViewDelegate
         let position = preserveSelection ? anchor.flatMap { snapshot.position(of: $0.identity, fileID: $0.fileID, store: $0.store, sourceID: $0.sourceID) } : nil
         let pending = preserveSelection && snapshot.filesPending && position == nil ? anchor : nil
         let selected = position ?? max(0, selectedRow)
-        show(snapshot, selection: selected, resetScroll: false)
+        let previousRow = selectedRow
+        var changedSelection = true
+        let previous = self.snapshot
+        if let previous, previous.raw == snapshot.raw, previous.scope == snapshot.scope, previous.count == snapshot.count {
+            cancelPendingRefresh()
+            refreshing = true
+            self.snapshot = snapshot; result = snapshot.filePresentation
+            let changed = reloadChangedVisibleRows()
+            if snapshot.count > 0 && previousRow != selected {
+                setSelection(selected, reveal: false); updateSelection(animated: false)
+            }
+            refreshing = false
+            rememberSelection()
+            if !changed.isEmpty { recomputeHover() }
+            changedSelection = selectedRow != previousRow || row?.identity != selectedLauncherRow?.identity || changed.contains(selectedRow)
+        } else {
+            show(snapshot, selection: selected, resetScroll: false)
+            changedSelection = false // show already notified the selection observer.
+        }
         retainedSelection = pending
-        var rect = scroll.contentView.bounds; rect.origin = position == nil ? origin : anchor?.origin ?? origin
-        scroll.contentView.scroll(to: scroll.contentView.constrainBoundsRect(rect).origin); scroll.reflectScrolledClipView(scroll.contentView)
+        let targetOrigin = position == nil ? origin : anchor?.origin ?? origin
+        if scroll.contentView.bounds.origin != targetOrigin {
+            var rect = scroll.contentView.bounds; rect.origin = targetOrigin
+            scroll.contentView.scroll(to: scroll.contentView.constrainBoundsRect(rect).origin); scroll.reflectScrolledClipView(scroll.contentView)
+        }
+        if changedSelection { onSelection?() }
         onSnapshotApplied?(snapshot)
+    }
+    private func reloadChangedVisibleRows() -> IndexSet {
+        // Compare against the cells on screen, since older file snapshots share a live index.
+        let visible = table.rows(in: table.visibleRect)
+        guard let snapshot, visible.location != NSNotFound else { return [] }
+        let range = NSIntersectionRange(visible, NSRange(location: 0, length: snapshot.count))
+        var changed = IndexSet()
+        for row in range.location..<NSMaxRange(range) {
+            guard let cell = table.view(atColumn: 0, row: row, makeIfNecessary: false) as? ResultCell else { changed.insert(row); continue }
+            let next = item(at: row).map(LauncherRow.file) ?? snapshot.row(at: row)
+            if next.map({ cell.displays($0, query: result?.query) }) != true { changed.insert(row) }
+        }
+        if !changed.isEmpty { table.reloadData(forRowIndexes: changed, columnIndexes: IndexSet(integer: 0)) }
+        return changed
     }
     func localize() {
         guard !scrolling, !dragging else { pendingLocalization = true; return }
@@ -532,7 +600,12 @@ final class ResultsView: FlippedView, NSTableViewDataSource, NSTableViewDelegate
         if table.selectingWithPointer { onUserNavigation?() }
         rememberSelection(); updateSelection(animated: !table.selectingWithPointer); recomputeHover(); onSelection?()
     }
-    @objc private func doubleClicked() { if table.clickedRow >= 0 { onOpen?() } }
+    @objc private func doubleClicked() {
+        let row = table.clickedRow
+        guard (0..<rowCount).contains(row) else { return }
+        if selectedRow != row { setSelection(row, reveal: false) }
+        onOpen?()
+    }
     func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? {
         guard canPerformFileActions?() != false else { return nil }
         guard let item = item(at: row), item.source.isOnline else { return nil }

@@ -99,6 +99,36 @@ final class AdditionalSearchTests: XCTestCase {
         XCTAssertFalse(controller.results.result?.hasAdditional == true)
         XCTAssertEqual(controller.results.result?.count, 1)
     }
+    func testTopicSyncKeepsAllResultsAndActionsWhileTheNextReadIsPending() throws {
+        _ = NSApplication.shared
+        let panel = SearchPanel(snapshot: true), controller = panel.searchController, provider = Provider(), source = source()
+        defer { provider.gate.signal(); panel.orderOut(nil); panel.close() }
+        _ = controller.view; controller.additionalSources = { [source] }; controller.additionalSearchProvider = provider
+        panel.orderFront(nil)
+        controller.searchField.text = "shared"; controller.startSearch()
+        XCTAssertTrue(eventually { controller.results.snapshot?.filesPending == false && controller.results.rowCount == 152 })
+        controller.results.select(10)
+        let selected = controller.results.selectedAdditional?.id
+        XCTAssertNotNil(selected)
+        let applied = expectation(description: "New topic read applied")
+        let onApplied = controller.results.onSnapshotApplied
+        var updates = 0
+        controller.results.onSnapshotApplied = { found in
+            onApplied?(found)
+            updates += 1
+            XCTAssertEqual(found.count, 152)
+            XCTAssertFalse(found.filesPending, "The refresh should not publish a partial result")
+            if !found.filesPending && updates == 1 { applied.fulfill() }
+        }
+        provider.delay = true
+        provider.onChange?()
+        XCTAssertTrue(controller.footer.actionable)
+        XCTAssertEqual(controller.results.rowCount, 152)
+        provider.gate.signal()
+        wait(for: [applied], timeout: 3)
+        XCTAssertEqual(updates, 1)
+        XCTAssertEqual(controller.results.selectedAdditional?.id, selected)
+    }
     func testNewQuerySuppressesStaleTopicsAndTopicKeysNeverInvokeFileActions() {
         _ = NSApplication.shared
         let provider = Provider(), controller = SearchViewController(snapshot: true)

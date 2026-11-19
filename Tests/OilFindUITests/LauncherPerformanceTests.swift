@@ -68,7 +68,7 @@ final class LauncherPerformanceTests: XCTestCase {
             composition.append(combined.elapsed)
             matched = files.total; rows = combined.value.count
             XCTAssertTrue(combined.value.fileResult === files)
-            XCTAssertLessThanOrEqual(combined.value.leading.count, 5)
+            XCTAssertEqual(combined.value.leading.count, apps.count)
             XCTAssertNotNil(combined.value.row(at: 0))
         }
         let size = store.read { (store.count, store.liveCount, store.allocatedBytes) }
@@ -363,7 +363,7 @@ final class LauncherPerformanceTests: XCTestCase {
             deduplication.append(measured.elapsed)
         }
         report("unified_compose_with_application_deduplication", samples: deduplication,
-               work: "scale=synthetic-10m matched_files=10000000 promoted_apps=5 duplicate_ids_near_array_end=true hash_built=true")
+               work: "scale=synthetic-10m matched_files=10000000 matching_apps=5 duplicate_ids_near_array_end=true hash_built=true")
         print("OILFIND_PERF synthetic_limit: fixed ASCII names and a flat tree; no claim about real directory, language, or query distributions.")
     }
 
