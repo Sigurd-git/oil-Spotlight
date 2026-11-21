@@ -49,8 +49,9 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
     var supplementaryProvider: SupplementarySearchProvider?
     var additionalSearchProvider: AdditionalSearchProvider? {
         didSet {
-            oldValue?.onChange = nil; oldValue?.visibilityChanged(false)
+            oldValue?.onChange = nil; oldValue?.onStatusChange = nil; oldValue?.visibilityChanged(false)
             additionalSearchProvider?.onChange = { [weak self] in self?.additionalChanged() }
+            additionalSearchProvider?.onStatusChange = { [weak self] in self?.additionalStatusChanged() }
             if isViewLoaded { additionalChanged() }
         }
     }
@@ -59,6 +60,15 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
         guard isViewLoaded else { return }
         filters.additionalTitle = additionalSearchProvider?.isEnabled == true ? additionalSearchProvider?.title : nil
         searchField.placeholder = scopes.scope == .files && filters.additionalSelected ? additionalSearchProvider?.placeholder : nil
+    }
+    private func additionalStatusChanged() {
+        guard isViewLoaded else { return }
+        if additionalSearchFailed && view.window?.isVisible == true &&
+            (scopes.scope == .all || scopes.scope == .files && (filters.additionalSelected || filters.options.kind == nil)) {
+            coordinator.refreshAdditional(additionalSearchProvider, sources: searchSources)
+        } else if scopes.scope == .files, filters.additionalSelected, let result = results.result {
+            updateFooter(result)
+        }
     }
     private func additionalChanged() {
         let wasAdditionalOnly = scopes.scope == .files && filters.additionalSelected
@@ -136,6 +146,7 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
         [searchField, topLine, scopes, filters, results, empty, indexing, bottomLine, footer, syntax].forEach(view.addSubview)
         filters.isHidden = true
         scopes.onChange = { [weak self] scope in self?.selectScope(scope) }
+        coordinator.onProgressChange = { [weak self] in self?.refreshProgress() }
         coordinator.onUpdate = { [weak self] found, refresh in
             guard let self else { return }
             if self.additionalSearchFailed { self.footer.warning = true; self.footer.text = L10n.text("search.failed") }
@@ -290,7 +301,10 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
     func indexChanged() {
         refreshProgress()
         supplementaryProvider?.sourcesDidChange(searchSources)
-        if view.window?.isVisible == true { coordinator.refreshFiles(sources: searchSources) }
+        if view.window?.isVisible == true {
+            if results.snapshot == nil && results.result != nil { startSearch(preserveSelection: true) }
+            else { coordinator.refreshFiles(sources: searchSources) }
+        }
     }
     func managerStateChanged(_ state: IndexManager.State) {
         refreshProgress()
@@ -298,10 +312,10 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
     }
     private func refreshProgress() {
         if (results.snapshot == nil || scopes.scope == .files), let result = results.result, result.query.isEmpty { updateFooter(result) }
+        searchField.indexing = coordinator.additionalPending || manager?.state == .scanning || manager?.isRescanning == true
         guard let manager else { return }
         supplementaryProvider?.backgroundIndexingChanged(manager.state == .loading || manager.state == .scanning || manager.isRescanning)
         additionalSearchProvider?.backgroundIndexingChanged(manager.state == .loading || manager.state == .scanning || manager.isRescanning)
-        searchField.indexing = manager.state == .scanning || manager.isRescanning
         if manager.store == nil && scopes.scope == .files && !filters.additionalSelected && (results.result?.count ?? 0) == 0 {
             let count = manager.scannedCount
             indexing.updateCount(count); footer.text = L10n.text("footer.indexing", Presentation.countText(count))
@@ -335,7 +349,10 @@ final class SearchViewController: NSViewController, NSWindowDelegate, NSMenuDele
                            engine: WebSearchEngine(rawValue: defaults.string(forKey: "webSearchEngine") ?? "duckDuckGo") ?? .duckDuckGo,
                            sources: searchSources, supplementaryProvider: supplementaryProvider, currency: currencyRow,
                            additionalProvider: additionalSearchProvider, additionalOnly: additionalOnly,
-                           allResultsOrder: AllResultsOrder.read(from: preferences))
+                           allResultsOrder: AllResultsOrder.read(from: preferences),
+                           displayedFile: (sameSearch || results.snapshot == nil && preserveSelection &&
+                               results.result?.matchesSearch(raw: searchField.text, options: options, additionalOnly: additionalOnly) == true)
+                               ? results.result : nil)
     }
     func startSources() {
         guard !snapshot else { return }

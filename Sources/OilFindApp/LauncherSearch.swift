@@ -235,6 +235,8 @@ final class SearchCoordinator {
     private var sources: [SearchSource] = [], supplementaryProvider: SupplementarySearchProvider?
     private var additionalProvider: AdditionalSearchProvider?, additionalOnly = false
     private(set) var additionalSearchFailed = false
+    private(set) var additionalPending = false { didSet { if additionalPending != oldValue { onProgressChange?() } } }
+    var onProgressChange: (() -> Void)?
     private var sourceCaches: [String: SearchCache] = [:], cacheStores: [String: ObjectIdentifier] = [:]
     private var editingRange: NSRange?, composing = false
     private var fileResult: SearchPresentation?, previousFile: SearchPresentation?, extras: [LauncherRow] = [], tail: [LauncherRow] = []
@@ -262,12 +264,12 @@ final class SearchCoordinator {
                 apps: [LauncherApp], clipboard: [ClipboardEntry], clipboardEnabled: Bool,
                 calculator: Bool, web: Bool, engine: WebSearchEngine, sources: [SearchSource]? = nil, supplementaryProvider: SupplementarySearchProvider? = nil,
                 currency: LauncherRow? = nil, additionalProvider: AdditionalSearchProvider? = nil, additionalOnly: Bool = false,
-                allResultsOrder: AllResultsOrder = .defaultOrder) {
+                allResultsOrder: AllResultsOrder = .defaultOrder, displayedFile: SearchPresentation? = nil) {
         lock.lock(); generation += 1; lock.unlock()
         self.raw = raw; self.scope = scope; self.options = options; self.sources = sources ?? Self.primarySource(store); self.supplementaryProvider = supplementaryProvider; self.editingRange = editingRange; self.composing = composing
         self.additionalProvider = additionalProvider; self.additionalOnly = additionalOnly; additionalSearchFailed = false
         self.allResultsOrder = allResultsOrder
-        previousFile = fileResult ?? previousFile; fileResult = nil; extras = []; tail = []; delivered = false
+        previousFile = fileResult ?? previousFile; fileResult = displayedFile; additionalPending = false; extras = []; tail = []; delivered = false
         filesPending = (scope == .files || scope == .all) && !self.sources.isEmpty
         refreshFiles(sources: self.sources)
         refreshSources(apps: apps, clipboard: clipboard, clipboardEnabled: clipboardEnabled, calculator: calculator, web: web, engine: engine, currency: currency)
@@ -290,20 +292,23 @@ final class SearchCoordinator {
             return FileManager.default.fileExists(atPath: path)
         })
         let cancelled = { [weak self] in self?.isCurrent(token, request: request, file: true) != true }
+        let initialVersions = Dictionary(uniqueKeysWithValues: sources.map { source in (source.id, source.store.read { source.store.version }) })
         let supplementary = !sources.isEmpty && supplementaryProvider?.isEnabled == true
             ? supplementaryProvider?.prepareSearch(query, options: options, sources: sources, isCancelled: cancelled) : nil
         let additional = !composing && (additionalOnly || options.kind == nil) && additionalProvider?.isEnabled == true
             ? additionalProvider?.prepareSearch(query, isCancelled: cancelled) : nil
         guard !sources.isEmpty || additional != nil else {
-            fileResult = nil; previousFile = nil; filesPending = false
+            fileResult = nil; previousFile = nil; filesPending = false; additionalPending = false
             if scope == .files || delivered { publish() }
             return
         }
         let hasSupplementaryWork = supplementary != nil || additional != nil
         // A source refresh for the active query can keep the merged rows while it reads.
         // A new query or a changed file index still gets its fast file-only result.
-        let keepPublishedRows = scope == .all && hasSupplementaryWork
+        let keepPublishedRows = hasSupplementaryWork && (scope == .all || (fileResult?.hasSupplements == true && supplementary != nil)
+            || (fileResult?.hasAdditional == true && additional != nil))
             && fileResult?.sources.count == sources.count && fileResult?.isCurrent(sources) == true
+        additionalPending = additional != nil && fileResult == nil
         let group = DispatchGroup(), box = SupplementarySearchBox()
         let additionalBox = AdditionalSearchBox()
         if let supplementary {
@@ -354,11 +359,17 @@ final class SearchCoordinator {
             if hasSupplementaryWork {
                 group.notify(queue: self.fileQueue) { [weak self] in
                     guard let self, !cancelled() else { return }
+                    if let supplementary, !found.matchesVersions(initialVersions) {
+                        box.hits = supplementary()
+                        guard !cancelled() else { return }
+                    }
                     let files = box.hits.isEmpty ? found : found.supplement(box.hits, options: options)
                     let items = additionalBox.failed && previous?.query.raw == query.raw ? previous?.additionalResults ?? [] : additionalBox.items
                     let combined = files.including(items, options: options, elapsedMs: additionalBox.elapsedMs)
                     DispatchQueue.main.async { [weak self] in
-                        guard let self, !cancelled(), combined.isCurrent(self.sources) else { return }
+                        guard let self, !cancelled() else { return }
+                        self.additionalPending = false
+                        guard combined.isCurrent(self.sources) else { return }
                         self.additionalSearchFailed = additionalBox.failed
                         self.fileResult = combined; self.previousFile = combined; self.filesPending = false; self.publish()
                     }
